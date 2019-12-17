@@ -1,0 +1,465 @@
+---
+title: | 
+  | PSY2002 Assignment 3
+output: 
+  html_document:
+    toc_depth: 6
+    code_folding: hide
+
+---
+
+submitted by: Navona  
+due date: 2019-11-12  
+last ran: `r Sys.Date()`     
+website: [http://rpubs.com/navona/PSY2002_assignment03](http://rpubs.com/navona/PSY2002_assignment03)
+
+-----
+
+<style>
+.space { margin-top: 530px; }
+</style>
+
+```{r setup_hide, echo=FALSE}
+
+#write a fn to make kable tables look nice
+kableTable_fn <- function(df, caption=''){
+  kable(df, 
+      col.names=c('group 1', 'group 2', 'group 3'),
+      digits=3,
+      align = 'c', 
+      caption=caption) %>%
+  kable_styling(bootstrap_options=c('striped', 'hover'), full_width = F, position='left') %>%
+  column_spec(1, bold = T) %>%
+    column_spec(2, background = "#F8766D", include_thead = TRUE) %>%
+    column_spec(2, background = "inherit") %>%
+    column_spec(3, background = "#7CAE00", include_thead = TRUE) %>%
+    column_spec(3, background = "inherit") %>%
+    column_spec(4, background = "#00BFC4", include_thead = TRUE) %>%
+    column_spec(4, background = "inherit") 
+}
+
+#define groups variable for tables
+groups <- c('group 1', 'group 2', 'group 3')
+
+#turn of scientific notation
+options(scipen=999)
+
+```
+
+```{r df_creation, warning=FALSE, message=FALSE, results='hide'}
+
+#load libraries
+libraries <- c('klaR','MASS', 'knitr', 'kableExtra', 'GGally', 'mvnormtest', 'car', 'ggrepel')
+lapply(libraries, require, character.only = T)
+
+#set seed for reproducable randomeness
+set.seed(100) 
+
+#specify size of variables
+k=3 #3 groups
+n=3 #3 observations/participants
+p=3 #3 features/variables
+
+#create our dataset
+cov_mat <- cov(matrix(rnorm(p*n), ncol=p, nrow=n)) #first, generate a random covariance matrix
+
+#write a function to create group matrices (identical covariance but different means)
+groupMat_fn <- function(mu1, mu2, mu3){
+  groupMat <- MASS::mvrnorm(n=n, mu=c(mu1, mu2, mu3), Sigma=cov_mat)
+  return(groupMat)
+}
+
+#apply the function for each of 3 groups (specifying independent means for each variable)
+matrix_1 <- groupMat_fn(4, 5, 6); matrix_2 <- groupMat_fn(3, 5, 5); matrix_3 <- groupMat_fn(2, 4, 1) 
+
+#bind together into a single matrix - our dataset
+matrix <- rbind(matrix_1, matrix_2, matrix_3)
+
+#add create row names
+row.names(matrix) <- paste('par_', seq(1, 9), sep='')
+
+```
+
+<button class="btn btn-secondary" data-toggle="collapse" data-target="#BlockName1"> Click to show dataset (k=3; identical covariances, different means) </button>  
+<div id="BlockName1" class="collapse">  
+
+```{r df_table}
+
+#create formatted table
+kable(matrix, 
+      col.names=c('V1', 'V2', 'V3'),
+      digits=3) %>%
+  kable_styling(bootstrap_options=c('striped', 'hover'), full_width = F,position='float_left') %>%
+  pack_rows('group 1', 1, 3, label_row_css = "background-color: #F8766D;") %>%
+  pack_rows('group 2', 4, 6, label_row_css = "background-color: #7CAE00;") %>%
+  pack_rows('group 3', 7, 9, label_row_css = "background-color: #00BFC4;")
+
+```
+
+<div class="space"></div>
+</div>
+
+<button class="btn btn-secondary" data-toggle="collapse" data-target="#BlockName2"> Click to show pairwise visualization </button>  
+<div id="BlockName2" class="collapse"> 
+
+```{r df_visualization}
+
+#add group to our matrix
+group <- paste0(c(rep('group 1', 3), rep('group 2', 3), rep('group 3', 3)))
+
+#add group names to matrix
+matrix_vis <- as.data.frame(cbind(matrix, group))
+                            
+#make plot (uses ggalley)
+ggpairs(as.data.frame(matrix_vis[1:3]), 
+        aes(colour = group)) + 
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+```
+
+<br>
+</div>
+
+-----
+
+</br>
+
+__Problem 1: Compute the within-group scatter matrix.__  
+
+$S_{within} = \sum_{i=1}^k \sum_{j=1}^{N_i} (x_{i,j} - \bar{x_i})(x_{i,j} - \bar{x_i})^T$
+
+```{r 1_withinGroup}
+
+#calculate the column means of each groups' matrix
+colMeans_1 <- colMeans(matrix_1); colMeans_2 <- colMeans(matrix_2); colMeans_3 <- colMeans(matrix_3)
+
+#initialize scatter within 0 matrix for each group
+sw_fn <- function(p=3, k=3){matrix(0, p, k)}
+sw_1 <- sw_fn(); sw_2 <- sw_fn(); sw_3 <- sw_fn()
+
+#for loop to create matrices
+for (i in 1:n){
+  sw_1 <- sw_1 + (matrix_1[i,] - colMeans_1) %*% t(matrix_1[i,] - colMeans_1)
+  sw_2 <- sw_2 + (matrix_2[i,] - colMeans_2) %*% t(matrix_2[i,] - colMeans_2)
+  sw_3 <- sw_3 + (matrix_3[i,] - colMeans_3) %*% t(matrix_3[i,] - colMeans_3)
+}
+
+#pool the matrices
+scatterWithin <- sw_1 + sw_2 + sw_3
+
+#create row names
+rownames(scatterWithin) <- groups
+
+#print table
+kableTable_fn(scatterWithin)
+
+```
+
+<br>
+
+-----
+
+__Problem 2: Compute the between-group scatter matrix.__
+
+$S_{between} = \sum_{i=1}^k N_i (\bar{x_i} - \bar{x})(\bar{x_i} - \bar{x})^T$   
+
+```{r 2_betweenGroup}
+
+#calculate grand mean (across all groups)
+grandMean <- colMeans(matrix)
+
+#for loop to create matrices
+scatterBetween <- 
+  nrow(matrix_1) * (colMeans_1 - grandMean) %*% t(colMeans_1 - grandMean) +
+  nrow(matrix_2) * (colMeans_2 - grandMean) %*% t(colMeans_2 - grandMean) +
+  nrow(matrix_3) * (colMeans_3 - grandMean) %*% t(colMeans_3 - grandMean)
+
+#'pool' the matrices
+#scatterBetween <- sb_1 + sb_2 + sb_3
+
+#create row names
+rownames(scatterBetween) <- groups
+
+#print table
+kableTable_fn(scatterBetween)
+
+```
+
+<br>
+
+-----
+
+__Problem 3: Compute the total scatter matrix.__  
+
+ $S_{total} = \sum_{i=1}^n (\bar{x_i} - \bar{x})(\bar{x_i} - \bar{x})^T$
+
+```{r 3_total}
+
+#make scatterTotal matrix
+scatterTotal <- scatterBetween + scatterWithin
+
+#print table
+kableTable_fn(scatterTotal)
+
+```
+
+-----
+
+__Problem 4: Show that $S_{total}$ = $S_{between}$ + $S_{within}$__.  
+
+>`all.equal(scatterTotal, scatterBetween + scatterWithin)`
+
+```{r 4_allEqual, echo=FALSE}
+
+all.equal(scatterTotal, scatterBetween + scatterWithin)
+
+```
+
+-----
+
+__Problem 5: Compute the inverse of $S_{within}$, i.e., $S_{within}^{-1}$.__
+
+```{r 5_inverse}
+
+#compute inverse- need special package as not full rank
+scatterWithinInverse <- MASS::ginv(scatterWithin) 
+
+#create row names
+rownames(scatterWithinInverse) <- groups
+
+#print table
+kableTable_fn(scatterWithinInverse)
+
+```
+
+-----
+
+__Problem 6: Compute the eigendecomposition of $S_{within}^{-1}S_{between}$.__  
+
+```{r 6_eigenvectors, results='asis'}
+
+lda_result <- eigen(scatterWithinInverse %*% scatterBetween) 
+
+#separate eigenvalues and eivengectors
+lda_eigenvalues  <- as.data.frame(lda_result[[1]])
+lda_eigenvectors <- as.data.frame(lda_result[[2]])
+
+#print table of eigenvectors
+rownames(lda_eigenvectors) <- groups
+kableTable_fn(lda_eigenvectors, caption='eigenvectors') 
+
+#create table of eigenvalues
+lda_eigenvalues <- t(lda_eigenvalues)
+
+#remove rownames
+rownames(lda_eigenvalues) <- c()
+
+#make the table pretty
+kable(lda_eigenvalues, 
+      digits=3,
+      align = 'c',
+      caption='eigenvalues') %>%
+  kable_styling(bootstrap_options=c('striped', 'hover'), full_width = F, position='left') 
+
+```
+
+-----
+
+__Problem 7: Project X onto the first discriminant function.__  
+
+```{r 7_matrixProjection}
+
+#multiply points by weights
+lda_df <- as.data.frame(matrix %*% as.matrix(lda_eigenvectors[,1])) 
+
+#change variable names
+names(lda_df) <- 'LDA_1'
+
+#add group information to df
+lda_df$group <- as.factor(group)
+
+#make table
+kable(lda_df[1],
+      digits=3,
+      col.names='LDA 1') %>%
+  kable_styling(bootstrap_options=c('striped', 'hover'), full_width = F, position='left') %>%
+  pack_rows('group 1', 1, 3, label_row_css = "background-color: #F8766D;") %>%
+  pack_rows('group 2', 4, 6, label_row_css = "background-color: #7CAE00;") %>%
+  pack_rows('group 3', 7, 9, label_row_css = "background-color: #00BFC4;")
+
+```
+
+-----
+
+__Problem 8: Plot discriminant scores derived above.__  
+
+```{r 8_2Dplot, fig.width=9.5, fig.height=3}
+
+#plot
+ggplot(lda_df, aes(x=row.names(lda_df), y=LDA_1, color=group, l)) +
+  geom_point(size=5) +
+  labs(x='participant',
+       y='first discriminant score (LDA 1)') +
+  theme_bw() +
+  theme(legend.position = 'top', legend.title=element_blank(),
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+```
+
+```{r cleanup, echo=FALSE}
+
+#remove all objects in global environment
+rm(list = ls(all.names = TRUE))
+
+```
+
+------
+
+```{r manova_setup, echo=FALSE}
+
+#load data
+data(iris)
+
+```
+
+-----
+
+__Problem 9: Fit a MANOVA to iris data with species as independent variable using the `lm` function.__
+
+```{r manova_fit}
+
+#fit model with lm
+manovaModel <- lm(cbind(Sepal.Length, Sepal.Width, Petal.Length, Petal.Width) ~ Species, data=iris)
+
+#summarize with manova
+(manovaFit <- summary(manova(manovaModel)))
+
+```
+
+-----
+
+__Problem 10: Test for significance of Species factor using `car::Anova`.__
+
+```{r manova_significance}
+
+#test for significance
+(manovaSig <- Anova(manovaModel))
+
+```
+
+-----
+
+__Problem 11: Report all test statistics using `car::summary`.__
+
+```{r manova_summary}
+
+#report all test statistics
+summary(manovaSig)
+ 
+```
+
+-----
+
+__Problem 12: extract the SSPE and SSPH from `car::summary`.__
+
+```{r manova_SSPE}
+
+#SSPE
+SSPE <- as.data.frame(manovaSig[2])
+
+#SSPH
+SSPH <- as.data.frame(manovaSig[1])
+
+#create row names
+rownames(SSPE) <- names(iris[1:4]); rownames(SSPH) <- names(iris[1:4])
+
+#fn for nice tables
+irisTables_fn <- function(df, caption){
+  kable(df, digits=3, caption=caption, col.names = colnames(iris[1:4])) %>%
+  kable_styling(bootstrap_options=c('striped', 'hover'), full_width = F, position='left') %>%
+  column_spec(1, bold = T)
+}
+
+#make nice tables
+irisTables_fn(SSPE, 'SSPE')
+irisTables_fn(SSPH, 'SSPH')
+
+```
+
+-----
+
+__Problem 13: Compute discriminant functions from SSPH and SSPE.__
+
+```{r manova_discriminant}
+
+#take the inverse of both matrices
+matrixInv <- solve(as.matrix(SSPE), as.matrix(SSPH))
+
+#then, take the eigenvectors -- these are our discriminant functions
+discriminant <- as.data.frame(eigen(matrixInv)[2])
+
+#create row names
+rownames(discriminant) <- names(iris[1:4])
+
+#make nice tables
+irisTables_fn(discriminant, 'Discriminant functions')
+
+```
+
+-----
+
+__Problem 14: Compute Roy's largest root from SSPE and SSPH.__
+
+```{r manova_roy, warning=FALSE}
+
+#obtain eigenvalues
+eigenValues <- as.data.frame(eigen(matrixInv)[1])
+
+#select max value -- this is Roy's root
+(roysRoot <- max(eigenValues))
+
+```
+
+-----
+
+__Problem 15: Create 100 random permutations of `iris` dataset.__
+
+```{r manova_permutation, warning=FALSE, fig.width=9.5, message=FALSE}
+
+#initialize table to store Roy's root values
+roy_df <- setNames(data.frame(matrix(ncol = 1, nrow = 100)), 'roys_root')
+
+#set number of iterations
+iterations = 100
+
+#for loop
+for (i in 1:iterations){
+    set.seed=123
+    iris$Species <- sample(iris$Species) #permute
+    manovaModel <- lm(cbind(Sepal.Length, Sepal.Width, Petal.Length, Petal.Width) ~ Species, data=iris) 
+    manovaSig <- Anova(manovaModel) 
+    SSPE <- as.data.frame(manovaSig[2])
+    SSPH <- as.data.frame(manovaSig[1])
+    matrixInv <- solve(as.matrix(SSPE), as.matrix(SSPH))
+    eigenValues <- as.data.frame(eigen(matrixInv)[1])
+    roysRoot <- max(abs(eigenValues)) #takes abs to avoid complex values on negative value rounding errors
+    roy_df[i,] <- roysRoot
+}
+
+#make annotation for plot
+roysRootMean <- mean(roy_df$roys_root)
+
+#histogram
+ggplot(roy_df, aes(x=roys_root)) +
+ geom_histogram(aes(y=..density..),color='black', fill='lightgrey') +
+ geom_density(alpha=.4, fill='pink') +
+ geom_vline(aes(xintercept=mean(roys_root)), linetype='dashed', size=1) +
+ labs(x='Roy\'s root') +
+ theme_bw() +
+ theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + 
+ geom_text(x=.075, y=20, label=paste('permuted mean Roy\'s largest root = ', roysRootMean))
+
+```
+
+

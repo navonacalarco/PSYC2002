@@ -1,0 +1,39 @@
+---
+title: "ncog"
+output: html_notebook
+---
+
+
+```{r setup}
+
+#bring in data
+df <- read.csv('../data/raw/SPINS_DATA_2019-11-23.csv', stringsAsFactors = F)
+
+```
+
+```{r munging}
+
+#find the summary scores across all sites
+#note, these are MATRICS domain t-scores
+
+df <- df[, c('record_id', 
+'np_domain_tscore_process_speed', #processing speed
+'np_domain_tscore_att_vigilance', #attention/vigilance
+'np_domain_tscore_work_mem', #working memory
+'np_domain_tscore_verbal_learning', #verbal learning
+'np_domain_tscore_visual_learning', #visual learning
+'np_domain_tscore_reasoning_ps' #reasoning/ps
+)]
+
+```
+
+```{r write csv}
+
+#write csv
+write.csv(df, paste0('../data/out/ncog_', Sys.Date(), '.csv', sep=''), row.names = F) #includes all participants
+
+#note: other scripts remove ineligible participants. this data contains all participants; need to be removed upon merge, etc.
+
+```
+
+

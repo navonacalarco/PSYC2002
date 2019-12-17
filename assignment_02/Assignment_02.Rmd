@@ -1,0 +1,447 @@
+---
+title: | 
+  | PSY2002 Assignment 2
+output: 
+  html_document:
+    toc: true
+    toc_depth: 6
+    toc_float: false
+    code_folding: hide
+
+---
+
+submitted by: Navona  
+due date: 2019-10-22  
+last ran: `r Sys.Date()`     
+website: [http://rpubs.com/navona/PSY2002_assignment02](http://rpubs.com/navona/PSY2002_assignment02)
+
+-----
+
+
+```{r setup, include=FALSE, warning=FALSE}
+
+#list libraries we want to use
+libraries <- c('CCA', 'CCP', 'psych', 'ggplot2', 'ggcorrplot', 'knitr', 'kableExtra', 'reshape2', 'dplyr', 'gridExtra', 'formattable')
+
+#load all libraries
+lapply(libraries, require, character.only = T)
+
+#read in data
+df<- read.csv("Film_Data.csv")
+
+```
+
+####Question 1
+
+<br>
+__a) What is the largest correlation value in the $X$ set and what does it suggest?__
+
+```{r 1, echo=FALSE}
+
+#Select the IVs and DVs 
+X <- scale(df[,c(2:4)]) #studio decisions
+Y <- scale(df[,c(5:7)]) #fan behaviour
+```
+
+```{r 1a, echo=FALSE}
+
+#correlation in X
+rxx <- cor(X)
+
+#find max value in correlation matrix, not including r=1
+x_max <- max(abs(rxx[rxx != 1]))
+
+#function to find row and column name of max value
+which.names <- function(df, value){
+   ind <- which(abs(df)==value, arr.ind=TRUE)
+   paste(rownames(df)[ind[1:nrow(ind)]], colnames(df)[ind[2]], sep=' and ')
+}
+
+#apply function (to find variable names associated with max value)
+x_max_var <- which.names(rxx, x_max)[1]
+```
+
+```{r 1b, echo=FALSE}
+
+#correlation in Y
+ryy <- cor(Y)
+
+#find max value, not including 1
+y_max <- max(abs(ryy[ryy != 1]))
+
+#apply function (to find variable names associated with max value)
+y_max_var <- which.names(ryy, y_max)[1]
+
+```
+
+```{r 1c, echo=FALSE}
+
+#correlation of X and Y
+rxy <- cor(X,Y)
+
+#find max value, not including 1
+xy_max <- max(abs(rxy[rxy != 1]))
+
+#apply function (to find variable names associated with max value)
+xy_max_var <- which.names(rxy, xy_max)[1]
+
+#find second highest value, not including 1 or xymax
+xy_pen <- max(abs(rxy[rxy != 1 & rxy != xy_max]))
+
+#apply function (to find variable names associated with second highest value value)
+xy_pen_var <- which.names(rxy, xy_pen)[1]
+
+```
+
+<div style= "float:right;position: relative; top: -20px;">
+```{r 1test, fig.width=3, fig.height=4}
+correl <- matcor(X, Y )
+img.matcor(correl, type = 1)
+
+```
+</div>
+
+The largest correlation among the $X$ set ('Studio Decisions'), is <u>r=`r x_max`</u>, and is between the variables ``r x_max_var``. This correlation means that, over time, more actors named Chris have landed a starring role. What it suggests is hard to determine: it _could_ be the case that studios recognized fans like leading men to be named Chris, and tried to capitalize on it, but we really can't say, as we are simply examining correlational relationships. (Note: correlations between all variables in the $X$ set are visualized in the top left quadrant of the figure to the right.)
+
+<br>
+__b)	What is the largest correlation value in the $Y$ set and what does it suggest?__
+
+The largest correlation among the $Y$ set ('Fan Behaviour'), is a negative correlation of <u>r=-`r y_max`</u>, between the variables ``r y_max_var``. This means that, the more ridiculous fans found a given film, the worse it did at the box office (or, conversely stated, the worse a film did at the box office, the more fans found it to be ridiculous). Though we might imagine that there is a cause and effect relationship between these variables, we again can only speak to correlation. (Note: correlations between all variables in the $Y$ set are visualized in the bottom right quadrant.) 
+
+<br>
+__c)	What are the two largest correlation values between the $X$ and $Y$ sets and what do they suggest?__
+
+The largest correlation among the $X$ set ('Studio Decisions') and $Y$ set ('Fan Behaviour') is <u>r=`r xy_max`</u>, between the variables ``r xy_max_var``. This means that, the more Chris's took a leading role, the better that film did at the box office. As described above, though this correlation informs us of a general relationship, we can say nothing about causality. (Note: correlations between the $X$ and $Y$ sets are symmetrically visualized in the top right and bottom left quadrants.)
+
+The second largest correlation among the  $X$ and $Y$ set is the negative correlation <u>r=-`r xy_pen`</u>, between the variables ``r xy_pen_var``. This suggests that, the more Chris's were in a lead role, the less likely that film was to be rated as ridiculous by fans. 
+
+<br>
+__d)	Calculate the omega matrix for $X$ and $Y$. How do the correlations change?__
+
+<div style= "float:right;position: relative; top: -20px; padding:20px;">
+```{r 1d, fig.height=2.5, fig.width=9}
+
+#calculate omega
+omega = t(solve(chol(rxx))) %*% rxy %*% solve(chol(ryy)) 
+
+#calculate difference matrix
+difference <- omega - rxy
+
+#visualize correlation of X and Y
+plot_rxy <- ggcorrplot(rxy, lab=TRUE, title='Cross-correlation matrix') +
+  theme(plot.margin=grid::unit(c(0,0,0,0), "mm")) #correlation matrix
+
+#visualize omega
+plot_omega <- ggcorrplot(omega, lab=TRUE, title='Omega matrix') +
+  theme(plot.margin=grid::unit(c(0,0,0,0), "mm")) #adjusted cross-correlation matrix
+
+#visualize omega
+plot_difference <- ggcorrplot(difference, lab=TRUE, title='Difference matrix') +
+  theme(plot.margin=grid::unit(c(0,0,0,0), "mm")) #difference between rxy and omega
+
+#plot together
+grid.arrange(plot_rxy, plot_omega, plot_difference, ncol=3)
+
+```
+</div>
+
+To calculate the omega matrix, we multiply the inverse of the Choleski factorization of the $X$ matrix, by the correlation matrix of the $X$ and $Y$ sets, by the inverse of the Choleski factorization of the $Y$ matrix. This middle term has the effect of <u>adjusting the cross-correlational values for "redundancy"</u>, i.e., adjusting for multicolinearity. 
+
+Above, I have visualized the cross-correlation matrix $R_{xy}$, the omega matrix, and then calculated the difference matrix between them. The largest delta has an absolute value of `r max(abs(difference))`, between the variables ``r which.names(difference, max(abs(difference)))``: the omega matrix shows an adjusted value of r=`r omega[3, 3]`, compared to the original value of r=`r rxy[3, 3]` (also note sign change). In general, <u>the adjustments are small </u> in these particular $X$ and $Y$ sets. We also find that some variables are not adjusted at all (the difference between``r which.names(difference, 0)`` is 0).
+
+-----
+
+####Question 2
+
+__a)	How many pairs of canonical variates are there and why?__
+
+```{r 2a}
+
+analysis <- cc(X,Y)
+
+analysis_cor   <- analysis$cor # the canonical correlations
+analysis_xcoef <- analysis$xcoef # standardized beta coefficients
+analysis_ycoef <- analysis$ycoef # standardized beta coefficients
+
+```
+
+There are <u>3 canonical variates</u> (canonical functions). Canonical variates are linear combinations that represent the weighted sum of the variables for the $X$ and $Y$ sets, analogous to factors obtained in factor analysis. The number of variates that can be extracted from the sets is <u>equal to the number of variables in the smallest set</u>; as both our $X$ and $Y$ set has 3 variables, our 'smallest set' must be 3.
+
+Though the number of canonical variables is equal to the number of variables in the smaller set, note that the number of _significant_ dimensions may be even smaller. 
+
+<br>
+__b)	Using the `p.asym` function, provide the value of Wilk’s Lambda and its significance for each of the canonical variates.__
+
+```{r 2bi, results = FALSE, echo=FALSE}
+
+#get lambda and p values
+analysis.sig <- as.data.frame(p.asym(analysis$cor, nrow(df), 3, 3, tstat = "Wilks"))
+
+```
+
+```{r 2bii}
+
+
+#move into table
+analysis.sig <- tibble::rownames_to_column(analysis.sig, "root")
+
+#change values of root
+analysis.sig$root <- c('canonical variate 1-3', 'canonical variate 2-3', 'canonical variate 3')
+
+#make into pretty table
+knitr::kable(analysis.sig[, c(1, 3, 7)],
+  digits=3,
+  align = c('l', 'c', 'c'),
+  col.names = c('root', 'Wilk\'s $\\Lambda$', '_p_ value')) %>%
+  kable_styling(bootstrap_options=c('striped', 'hover', 'condensed'), full_width=F, position='float_left')
+
+```
+
+Wilk's lambda $\Lambda$ is calculated as $\Pi(1-\lambda)$. Wilk's $\Lambda$ represents something of an inverse effect size, or the amount of variance _not_ shared (i.e., the proportion of variance extracted using the redundancy correlation). 
+
+The `root` column in the table to the left indicates that canonical variates are tested for significance in a hierarchical fashion. All $n$ variates (here, 1:3) are tested first, followed by 2:$n$ functions (here, 2:3), and so on, to the $n^{th}$ variate by itself (here, 3). Successive pairs of canonical variates have smaller canonical correlations. If the last variate is significant, we can infer that the ones before it are as well. (We test in this fashion as there is no easy way to test each variate separately for statistical significance.) We report the  $\Lambda$ value as that at the top of the hierarchy, i.e., `r analysis.sig[1, 3]`.
+
+Pertaining to our data, we find that the overall model accounts for <u>1 - `r analysis.sig[1, 3]` of the variance (`r round(((1- analysis.sig[1, 3]) * 100), 2)`%)</u>. We find similar values with Hotelling-Lawley Trace, Pillai-Bartlett Trace, and Roy's largest root, all of which also use the F-approximation, like Rao's approximation used by Wilk's $\Lambda$.
+
+We also find that <u>all 3 of our canonical variates are statistically significant</u> at the _p_=.05 level. In what follows, we proceed to analyze just the first two variates; but the third variate probably explains enough of the relationship between the $X$ and $Y$ sets to also warrant interpretation.
+
+-----
+
+####Question 3
+
+__a) Provide a table of the standardized canonical function coefficients__ ($\beta$ weights) __, structure coefficients__ ($r_s$) __, and canonical correlation coefficient__ ($R_c$) __for the first canonical variate/function.__ 
+
+```{r 3ai}
+
+usv <- svd(omega) #decompose matrix
+
+############################
+#standardized weights
+###########################
+
+#standardized weights -x
+x.weights.std <- (solve(chol(rxx)) %*% usv$u)[,1]
+x.weights.std <- t(data.frame(lapply(x.weights.std, type.convert), stringsAsFactors = F)) #get into df
+
+#standardized weights - y
+y.weights.std <- (solve(chol(ryy)) %*% usv$v)[,1]
+y.weights.std <- t(data.frame(lapply(y.weights.std, type.convert), stringsAsFactors = F)) #get into df
+
+############################
+#structure coefficients
+###########################
+
+#structure coefficients - x
+x.structures <- rxx %*% x.weights.std
+
+#structure coefficients - y
+y.structures <- ryy %*% y.weights.std
+
+############################
+#make table
+###########################
+
+#bind together standardized weights
+weights <- rbind(x.weights.std, y.weights.std)
+
+#bind together structure coefficients
+structures <- rbind(x.structures, y.structures)
+
+#make table
+tbl_q3 <- as.data.frame(cbind(weights, structures))
+
+#add rownames as a variable
+tbl_q3 <- tibble::rownames_to_column(tbl_q3, "variable")
+
+#set up dynamic names for table
+label <- paste("$R_c$=", round(analysis$cor[1], 5))
+myHeader <- c(" " = 1, label = 2) # create vector with colspan
+names(myHeader) <- c(" ", label) #set names
+
+#make into pretty table
+tbl_q3_plot <- tbl_q3
+tbl_q3_plot[,2:3] <- round(tbl_q3_plot[,2:3], 3) #shorten here, because formatting makes characters (?!)
+
+tbl_q3_plot %>%
+  mutate(
+    V2 = ifelse((V2 > .45 | V2 < -.45),
+          cell_spec(V2, color='green', underline = T, bold = T),
+          cell_spec(V2, color='black'))) %>%
+  kable(escape=F, 
+        #digits = 3,
+        align = c('l', 'c', 'c'),
+        col.names = c('_Variable_', '$\\beta$', '$r_s$')) %>%
+  kable_styling(bootstrap_options=c('striped', 'hover', 'condensed'), full_width=F, position='float_left') %>%
+  add_header_above(header=myHeader) %>%
+  add_header_above(c(" " = 1, "_Function 1_" = 2)) %>%
+  pack_rows('X', 1, 3) %>%
+  pack_rows('Y', 4, 6) %>%
+  footnote(general = "$R_c$ = canonical correlation coefficient;
+           $\\beta$ = standardized canonical function coefficient; 
+           $r_s$ = structure coefficient") 
+
+```
+
+```{r echo=FALSE}
+
+pen_max <-  max(abs(tbl_q3[4:6, 3][tbl_q3[4:6, 3] != max(tbl_q3[4:6, 3])]))
+
+```
+
+
+The <u>canonical correlation coefficients</u> ($R_c$) represents the bivariate correlation between the two canonical variates $X$ and $Y$. As canonical correlation analysis maximizes correlation (not variance, like PCA), the $R_c$ is bound between 0 and 1, and may be _interpreted in the same way that bivariate correlations_ are.
+
+The <u>standardized canonical function coefficients/ weights</u> ($\beta$) is one of three methods to interpret a canonical variate, to determine the relative importance of each of the original variables in the canonical relationship (the others are structure coefficients, discussed below, and canonical cross-loadings, not discussed. $\beta$s are _interpreted in a manner analogous to standardized regression coefficients_. 
+
+The <u>structure coefficients / loadings</u> ($r_s$) measure the simple linear correlation between an observed variable and its' set's canonical variate, and thus _can be interpreted like a factor loading_. $r_s$ are now typically preferred to $\beta$s, due to deficiencies with the latter method (i.e., a small $\beta$ can mean either than variable is irrelevant in determining the relationships, or that it has been partialled out due to a high degree of colinearity). 
+
+<br>
+__b)	Briefly interpret the results of the first canonical variate__
+
+<u>Canonical correlation coefficients</u> ($R_c$): Because we know that the $R_c$ for the first canonical function is significant, we can interpret its magnitude of `r analysis$cor[1]` as indicating a strong relationship between the canonical variates (though, of course, we need to interpret within the context of the research problem, in which I don't have expertise). 
+
+<u>Standardized canonical function coefficients/ weights</u> ($\beta$): Because of the above described limitation of $\beta$, I will choose to instead interpret $r_s$ (below). In the $X$ set, we see that the $\beta$ and $r_2$ values are relatively aligned, and all would be interpreted consistently if Shelley and Henson's (2005) threshold of |.45| were applied. However, in the $Y$ set, we find one instance in which a variable's $\beta$ is moderate and falls below this threshold of interpretation, whilst the corresponding $r_s$ value surpasses the threshold. Specifically, we see that the `Ridiculous` variable's $\beta$ is `r tbl_q3[5, 2]`, compared to a $r_s$ value of `r tbl_q3[5, 3]`. This discrepancy likely indicates collinearity. 
+
+<u>Structure coefficients / loadings</u> ($r_s$): For the $X$ set, the first canonical dimension is most strongly influenced by the ``r tbl_q3$variable[tbl_q3$V2==max(tbl_q3$V2[1:3])]`` variable. (This means that a one standard deviation increase in ``r tbl_q3$variable[tbl_q3$V2==max(tbl_q3$V2[1:3])]`` leads to a `r max(tbl_q3[1:3, 3])` standard deviation increase in the score on the first canonical variate for set $Y$, when the other variables in the model are held constant.) For the $Y$ set, we see that two variables contribute to the first canonical dimension above threshold: the ``r tbl_q3$variable[tbl_q3$V2==max(tbl_q3$V2[4:6])]`` variable at $r_s$ =`r max(tbl_q3[4:6, 3])`, and the ``r tbl_q3$variable[abs(tbl_q3$V2)==abs(pen_max)]`` variable at $r_s$=-`r pen_max`. We also find that the `Universe` variable makes virtually no contribution to the $X$ set. In contrast, the `Release.Date` variable makes a small contribution to the $X$ set and the `Fun` variable makes a small contribution to the $Y$ set, but both fall below our select interpretation threshold (note, of course, that both would be interpretated if we adopted a more generous threshold of |.3|).
+
+<u>Interpretation:</u> The number of leading `Chrises` is positively associated with `Box.Office` success, and negatively associated with `Ridiculous` ratings from fans.
+
+
+-----
+
+<br>
+
+####Question 4
+
+__a) Provide a table of the standardized canonical function coefficients__ ($\beta$ weights) __, structure coefficients__ ($r_s$) __, and canonical correlation coefficient__ ($R_c$) __for the second canonical variate/function.__ 
+
+```{r 4a}
+
+############################
+#standardized weights
+###########################
+
+#standardized weights -x
+x.weights.std <- (solve(chol(rxx)) %*% usv$u)[,2]
+x.weights.std <- t(data.frame(lapply(x.weights.std, type.convert), stringsAsFactors = F)) #get into df
+
+#standardized weights - y
+y.weights.std <- (solve(chol(ryy)) %*% usv$v)[,2]
+y.weights.std <- t(data.frame(lapply(y.weights.std, type.convert), stringsAsFactors = F)) #get into df
+
+############################
+#structure coefficients
+###########################
+
+#structure coefficients - x
+x.structures <- rxx %*% x.weights.std
+
+#structure coefficients - y
+y.structures <- ryy %*% y.weights.std
+
+############################
+#make table
+###########################
+
+#bind together standardized weights
+weights <- rbind(x.weights.std, y.weights.std)
+
+#bind together structure coefficients
+structures <- rbind(x.structures, y.structures)
+
+#make table
+tbl_q4 <- as.data.frame(cbind(weights, structures))
+
+#add Rownames as a variable
+tbl_q4 <- tibble::rownames_to_column(tbl_q4, "variable")
+
+#set up dynamic names for table
+label <- paste("$R_c$=", round(analysis$cor[2], 5))
+myHeader <- c(" " = 1, label = 2) # create vector with colspan
+names(myHeader) <- c(" ", label) #set names
+
+#make into pretty table
+tbl_q4_plot <- tbl_q4
+tbl_q4_plot[,2:3] <- round(tbl_q4_plot[,2:3], 3) #shorten here, because formatting makes characters (?!)
+
+tbl_q4_plot %>%
+  mutate(
+    V2 = ifelse((V2 > .45 | V2 < -.45),
+          cell_spec(V2, color='green', underline = T, bold = T),
+          cell_spec(V2, color='black'))) %>%
+  kable(escape=F, 
+        align = c('l', 'c', 'c'),
+        col.names = c('_Variable_', '$\\beta$', '$r_s$')) %>%
+  kable_styling(bootstrap_options=c('striped', 'hover', 'condensed'), full_width=F, position='float_left') %>%
+  add_header_above(header=myHeader) %>%
+  add_header_above(c(" " = 1, "_Function 2_" = 2)) %>%
+  pack_rows('X', 1, 3) %>%
+  pack_rows('Y', 4, 6) %>%
+  footnote(general = "$R_c$ = canonical correlation coefficient;
+           $\\beta$ = standardized canonical function coefficient; 
+           $r_s$ = structure coefficient") 
+
+```
+
+__b) Briefly interpret the results of the second canonical variate__
+
+<u>Canonical correlation coefficients</u> ($R_c$): Because we know that the $R_c$ for the second canonical function is significant, we can interpret its magnitude of `r analysis$cor[2]` as relatively strong.
+
+<u>Standardized canonical function coefficients/ weights</u> ($\beta$): Unlike for the first canonical variate, we don't see any variables for which $\beta$ and $r_s$ provide different indications regarding variable interpretation. This suggests that the second canonical variate may not show collinearity between sets. 
+
+<u>Structure coefficients / loadings</u> ($r_s$): We see that for the $X$ set, the second canonical dimension is most strongly influenced by the `Release.Date` variable. (This means that a one standard deviation increase in `Release.Date` leads to a $r_s$=.918 standard deviation decrease in the score on the second canonical variate for set $Y$, when the other variables in the model are held constant.) For the $Y$ set, we see that two variables contribute to the second canonical dimension above threshold: the `Fun` variable at $r_s$=-.607, and the `Ridiculous` variable at $r_s$ =-.603. The `Universe` and `Chrises` variables, and the `Box.Office` variable, make little contribution to the $X$ and $Y$ sets, respectively.
+
+<u>Interpretation:</u> An earlier release date is associated with lower `Ridiculous` and  `Fun` ratings from fans.
+
+<br>
+<br>
+<br>
+
+-----
+
+####Question 5
+
+__The communality coefficient $(h^2)$ is the sum of the squared canonical structure coefficient $(r_s^2)$. Calculate the canonical structure coefficients, square them, and add the first two together to get each manifest variable’s communality coefficient for the two canonical variates in our model.__
+
+```{r 5}
+
+#calculate squared structure coefficient (percent)
+squaredCoef_1 <-as.data.frame((tbl_q3$V2)^2 * 100)
+squaredCoef_2 <-as.data.frame((tbl_q4$V2)^2 * 100)
+
+#calculate communality
+communality <-as.data.frame(squaredCoef_1 + squaredCoef_2)
+
+#write row names
+rownames <- tbl_q3$variable 
+
+#put into a dataframe
+tbl_q5 <- cbind(rownames, squaredCoef_1, squaredCoef_2, communality)
+
+#make into pretty table
+knitr::kable(tbl_q5,
+  digits=3,
+  align = c('l', 'c', 'c', 'c'),
+  col.names = c('_Variable_', '$r_s^2$ (%)', '$r_s^2$ (%)', '$h^2$ (%)')) %>%
+  kable_styling(bootstrap_options=c('striped', 'hover', 'condensed'), full_width=F, position='float_left') %>%
+  add_header_above(c(" " = 1, "_Function 1_" = 1, "_Function 2_" = 1, " " = 1)) %>%
+  pack_rows('X', 1, 3) %>%
+  pack_rows('Y', 4, 6) %>%
+  footnote(general ="$r_s^2$ = squared structure coefficient; 
+           $h^2$ = communality")
+
+```
+
+__a)	What were the most useful manifest variables for the $X$ set ('Studio Decisions')? Give the $h^2$ value.__
+
+The most useful variables for the $X$ set are `Release.Date` and `Chrises`, which both show a $h^2$ value of ~100%.
+
+__b)	What were the most useful manifest variables for the $Y$ set ('Fan Behaviour')? Give the $h^2$ value.__
+
+The most useful variable for the $Y$ set is `Box.Office`, at $h^2$=95.259%. `Ridiculous` is also useful, as is `Fun`, though to smaller extents.
+
+__c) What conclusions would you draw based on these scores?__ We can conclude that, across both examinined functions, `Release.Date` and `Chrises` are very important to the $X$ set, and`Universe` is virtually unimportant (in future analyses, we might choose to remove `Universe` from the $X$ set. All 3 variables in the $Y$ set are of at least moderate importance to it. (Note: I am assuming the Sherry and Henson threshold of interpreting $h^2$ values as useful is they meet or exceed 45%.)
+
+
+
+

@@ -1,0 +1,32 @@
+---
+title: "00_participantExclusion"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+#read in data
+df <- read.csv('../data/raw/SPINS_DATA_2019-11-23.csv', stringsAsFactors = F)
+
+```
+
+```{r exclude}
+
+#include only participants explicitly marked as eligible
+df <- df[(df$elg_p_yn == 1 | df$elg_ct_yn == 1),] #no data from ineligible
+
+#exclude participants removed from study
+df <- df[!(df$term_early_withdraw == 2 | df$term_early_withdraw == 8),] #failed to meet eligibility, withdrawn by psychiatrist
+df <- df[is.na(df$term_early_withdraw),] #or, remove all early termination / withdrawal, for several reasons
+
+#exclude participants on the basis of failed imaging QC
+
+```
+
+```{r writeout csvs}
+
+#write csv
+write.csv(df, paste0('../data/out/SPINS_REDCap_', Sys.Date(), '.csv', sep='')) #includes only eligible participants
+
+```
+

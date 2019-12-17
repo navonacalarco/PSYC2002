@@ -1,0 +1,259 @@
+---
+title: "01_dataMunging_imaging"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 5
+  
+---
+
+
+
+------
+
+Written: 2019-11-24   
+Last run: `r Sys.Date()`
+
+-----
+
+```{r setup, include=FALSE}
+
+#libraries
+library(stringr)
+library(stringi)
+library(ggplot2)
+library(ggpubr)
+library(plyr)
+library(data.table)
+library(DT)
+library(reshape)
+library(kableExtra)
+
+#bring in data
+df <- read.csv('../data/raw/FiberMeasurements_2019-11-22.csv', stringsAsFactors = F) #imaging
+
+#paste together region and hemisphere information
+df$region <- paste0(df$region, '_', df$hemisphere, sep='')
+
+#remove the 'T_' from the beginning of every region name
+df$region <- str_sub(df$region, 3)
+
+#make sure that region is a factor
+df$region <- as.factor(df$region)
+
+#make sure hemisphere is a factor
+df$hemisphere <- as.factor(df$hemisphere)
+
+#for this analysis, keep just FA value (will look at other factors later)
+df <- df[, c('participant_id', 'region', 'hemisphere', 'tensors.FractionalAnisotropy.Mean')]
+
+#rename FA variable, for clarity
+names(df)[names(df) == 'tensors.FractionalAnisotropy.Mean'] <- 'FA'
+
+#modify subject ID, so can merge with the clinical database
+df$participant_id <- str_sub(df$participant_id, 5) #remove BIDS 'sub'
+stri_sub(df$participant_id, 4, 3) <- '_' #place underscore as fourth character
+df$participant_id <- paste('SPN01_', df$participant_id, sep='') #append `SPN01_` to every ID
+
+#write csv
+write.csv(df, paste0('../data/out/FA_long_', Sys.Date(), '.csv', sep=''), row.names = F) #includes only FA values
+
+```
+
+```{r merge with demo, include=FALSE}
+
+#bring in demo data
+demo <- read.csv(dir('../data/out/', full.names=T, pattern="^demo")) #partial match 
+
+#make sure participant ID is a character var
+demo$participant_id <- as.character(demo$participant_id)
+
+#merge together dfs to get class labels (HC, SSD)
+df_image <- merge(df, demo, all.x=TRUE)
+
+#remove participants missing 'group' information -- have imaging data but no REDCap record (in progress)
+df_image <- df_image[!is.na(df_image$group),]
+
+```
+
+##Visualizations
+
+```{r visualization, warning=FALSE}
+
+#for plotting, separate dfs by hemisphere (left, right, commissural)
+df_imageLeft <- df_image[df_image$hemisphere == 'left',]
+df_imageRight <- df_image[df_image$hemisphere == 'right',]
+df_imageCommissural <- df_image[df_image$hemisphere == 'commissural',]
+
+#write a function to have means printed without leading 0
+numFormat_fn <- function(val) { 
+  sub("^(-?)0.", "\\1.", sprintf("%.3f", val) #3 decimals
+  ) 
+} 
+
+#write a function to annotate boxplots -- count, mean, and specify position
+boxplotStats_fn <- function(y, upper_limit = max(df_image$FA) * 1.1) {
+  return( 
+    data.frame(
+      y = 1 * upper_limit,
+      label = paste('n =', length(y), '\n',
+                     'x =', numFormat_fn(mean(y)), '\n')
+    )
+  )
+}
+
+#write a function for faceted boxplots
+boxplot_fn <- function(df){
+ggplot(df, aes(x=group, y=FA), color=group) + 
+  geom_boxplot(aes(fill=group, alpha=.7), show.legend = F, outlier.shape = NA) +
+  geom_violin(aes(fill=group, alpha=.5), show.legend = F) + 
+  geom_jitter(aes(fill=group), colour='black', pch=21, size=2) +
+  facet_wrap(~ region , ncol=6) +
+  ylim(.15, .7) + #allow room for annotation
+  theme_bw() +
+  xlab('') +
+  theme(legend.position="top") +
+  stat_summary(fun.data=boxplotStats_fn, geom='text', hjust=.5, vjust=.9) +
+  stat_compare_means(method='t.test',
+                     aes(label = paste0('p = ', ..p.format..)))
+}                       
+
+```
+
+###Left
+
+```{r left, fig.height=25, fig.width=9.5, warning=FALSE, echo=FALSE}
+boxplot_fn(df_imageLeft)
+```
+
+
+###Right
+
+```{r right, fig.height=25, fig.width=9.5, warning=FALSE, echo=FALSE}
+boxplot_fn(df_imageRight)
+```
+
+###Commissural
+
+```{r commissural, fig.height=10, fig.width=9.5, warning=FALSE, echo=FALSE}
+boxplot_fn(df_imageCommissural)
+```
+
+##Data table
+
+```{r table reformat, echo=FALSE}
+
+#need to rearrange the dataframe for the table (from long to wide format)
+df_imageWide <- df_image[, c('participant_id', 'region', 'FA')] #make smaller so easy to reshape
+df_imageWide <- reshape(df_imageWide, idvar = "participant_id", timevar = "region", direction = "wide") #reshape the df
+df_imageWide <- merge(df_imageWide, demo, by='participant_id', all.x = TRUE)
+
+#write out the wide-format table
+write.csv(df_imageWide, paste0('../data/out/FA_wide_', Sys.Date(), '.csv', sep=''), row.names = F) #includes all participants
+
+```
+
+
+```{r table creation, echo=FALSE}
+
+#remove FA.ICP_commissural with missing values -- t-tests fail
+df_imageWide <- within(df_imageWide, rm(FA.ICP_commissural))
+
+#create of vector of variables to include
+vars <- grep('FA', names(df_imageWide), value=TRUE)
+
+#initialize dataframe and name columns and rows
+tbl <- data.frame(matrix(ncol=5, nrow=length(vars)))
+names(tbl) <- c('SSD missing tract (n)', 'SSD FA', 'HC missing tract (n)', 'HC FA', '_p_')
+row.names(tbl) <- vars
+
+# initialize counters (j = row, k = column)
+diagnosis <- factor(x = c('SSD', 'HC'), levels = c('SSD', 'HC'))
+
+#counters 
+r <- 1 #row
+c <- 1 #column
+
+#calculate the count of participants with a value - for SSD
+for (var in vars) {
+  N <- sum(is.na(df_imageWide[df_imageWide$group == 'SSD', var]))
+  tbl[r,c] <- N
+  
+   r <- r + 1
+}
+
+r <- 1
+c <- 3
+
+#calculate the count of participants with a value - for HC
+for (var in vars) {
+  N <- sum(is.na(df_imageWide[df_imageWide$group == 'HC', var]))
+  tbl[r,c] <- N
+  
+   r <- r + 1
+}
+
+r <- 1
+c <- 2 
+
+#calculate means and SDs for each scanner - for SSD
+
+for (var in vars) {
+
+    M <- sprintf('%.03f', mean(df_imageWide[df_imageWide$group == 'SSD', var], na.rm = TRUE))
+    SD <- sprintf('%.03f', sd(df_imageWide[df_imageWide$group == 'SSD', var], na.rm = TRUE))
+    tbl[r,c] <- paste( M,' (',SD,')', sep='')
+    
+    r <- r + 1
+}
+
+r <- 1
+c <- 4
+
+#calculate means and SDs for each scanner - for HC
+for (var in vars) {
+    M <- sprintf('%.03f', mean(df_imageWide[df_imageWide$group == 'HC', var], na.rm = TRUE))
+    SD <- sprintf('%.03f', sd(df_imageWide[df_imageWide$group == 'HC', var], na.rm = TRUE))
+    tbl[r,c] <- paste( M,' (',SD,')', sep='')
+    
+    r <- r + 1
+}  
+
+r <- 1
+c <- 5
+
+#run a t-test -- use F test as the same for 2 groups and deals with NAs well
+for (var in vars) {
+  # run one-way ANOVA with cluster as between-subjects variable
+  t_test <- t.test(df_imageWide[[var]] ~ df_imageWide$group, na.action=na.omit)
+  # extract p-value
+  t_test.p.value <- t_test$p.value
+  # rounded p-value to 3 decimals and without leading zero
+  t_test.p <- sub("^(-?)0.", "\\1.", sprintf("%.3f", t_test.p.value))
+  tbl[r,c] <- t_test.p 
+  
+  r <- r + 1
+
+}
+
+#make table pretty / easy to so
+tbl <- setDT(tbl, keep.rownames = 'tract')[] #make row names a variable
+tbl$tract <- substring(tbl$tract, 4)
+tbl$hemisphere <- unlist(lapply(strsplit(tbl$tract, '_', fixed = TRUE), '[', 2)) #take everything after underscore
+tbl$tract <- unlist(lapply(strsplit(tbl$tract, '_', fixed = TRUE), '[', 1)) #take everything before
+
+#rearrange the tbl for clarity
+tbl <- tbl[, c('hemisphere', 'tract', "SSD missing tract (n)", "SSD FA", "HC missing tract (n)", "HC FA" )]
+
+#print table
+#knitr::kable(tbl,digits = 3) %>%
+#kable_styling(bootstrap_options = c("striped", "hover"))
+
+#print interactive table
+datatable(tbl)
+
+```
+
+
+

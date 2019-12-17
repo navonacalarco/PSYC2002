@@ -1,0 +1,774 @@
+---
+title: |
+  | Shared and distinct relationships between neurocognition, social cognition, and white matter microstructure: A canonical correlation analysis across the schizophrenia-to-healthy control spectrum 
+output:
+  html_document:
+    toc: yes
+    toc_depth: 6
+    toc_float: true
+---
+
+<style type="text/css">
+h1.title {
+  font-size: 20px;
+}
+</style>
+
+>Navona Calarco  
+>PSYC2002  
+>12/13/2019  
+
+```{r munging, include=FALSE, results='hide'}
+
+#libraries
+libraries <- c('CCA', 'CCP', 'psych', 'ggplot2', 'ggcorrplot', 'knitr', 'kableExtra', 'reshape2', 'dplyr', 'gridExtra', 'formattable', 'matrixcalc', 'lme4', 'MVN', 'plyr', 'dplyr', 'zoo', 'png', 'grid', 'candisc')
+
+#load all libraries
+lapply(libraries, require, character.only = T)
+
+#read in dfs
+df <- read.csv(dir('../data/out/', full.names=T, pattern="^df_"))
+demo <- read.csv('../data/raw/SPINS_DATA_2019-11-23.csv')
+
+#make subset of demo vars of interest
+demo <- demo[, c( #demographics
+  "record_id",              
+  'demo_sex_birth',
+  'demo_age_study_entry', 
+  'demo_highest_grade_self', 
+  'wtar_std_score',
+  'bprs_factor_total',
+  'sans_total_sc')]
+
+#rename for clarity - demo
+names(demo)[names(demo) == 'demo_sex_birth'] <- 'Sex (F:M)'
+names(demo)[names(demo) == 'demo_age_study_entry'] <- 'Age'
+names(demo)[names(demo) == 'demo_highest_grade_self'] <- 'Education (years)'
+names(demo)[names(demo) == 'wtar_std_score'] <- 'WTAR'
+names(demo)[names(demo) == 'bprs_factor_total'] <- 'BPRS'
+names(demo)[names(demo) == 'sans_total_sc'] <- 'SANS'
+
+#rename for clarify -- df
+names(df) <- c(
+  "participant_id" ,             
+  "group",                      
+  "AF (L)",                    
+  "AF (R)" ,                  
+  "UF (L)"  ,                   
+  "UF (R)"   ,                 
+  "ILF (L)"   ,                 
+  "ILF (R)"    ,              
+  "Processing speed"  ,         
+  "Attention & vigilance",       
+  "Working memory",              
+  "Verbal learning",            
+  "Visual learning",            
+  "Problem solving", 
+  "Simulation",                  
+  "Mentalizing") 
+
+#completeness
+remove <- which(apply(df[3:8], MARGIN = 1, function(x) sum(is.na(x))) > 1) #imaging ≥2 -- LOSE 4
+df <- df[ -remove,]
+
+remove <- which(apply(df[9:14], MARGIN = 1, function(x) sum(is.na(x))) > 1) #neurocog ≥2 -- LOSE 3
+df <- df[ -remove,]
+
+remove <- which(apply(df[15:16], MARGIN = 1, function(x) sum(is.na(x))) > 0) #social cognition -- LOSE 4
+df <- df[ -remove,]
+
+remove <- which(apply(df[3:16], MARGIN = 1, function(x) sum(is.na(x))) > 3) #across df -- LOSE 0 
+
+#how many participants still have missing values
+sum(!complete.cases(df)) 
+
+#replace missing values with group mean
+df <- df %>%
+  group_by(group) %>% 
+  mutate_each(funs(replace(., which(is.na(.)),
+                              mean(., na.rm=TRUE))))
+#merge demographics with df, so can use for tables, etc
+demo <- merge(df, demo, all.x=TRUE, by.x='participant_id', by.y='record_id')
+
+```
+
+
+####Introduction
+
+Neurocognitive and social cognitive deficits are pervasive in schizophrenia (SSD). Both deficits are often evident early in illness course, highly predictive of functional outcome, and largely unalleviated by existing pharmacological intervention. A great deal of research has described the unique and shared variance of neurocognition and social cognition deficits, as well as their respective, and mutual, relationship to other hallmark features in SSD. More recently, interest in biologically-driven detection and targeted intervention has driven a smaller body of work to investigate the neurobiology underlying neurocognition and social cognition deficits. To date, most imaging studies have tested the association of a single construct (i.e., either neurocognition or social cognition, often considered as unitary rather than dimensional) with whole-brain derived features. As a result, it is unknown if neurocognitive and social cognitive deficits arise from overlapping or distinct brain pathology. 
+
+__Objective__. In the present analysis, we apply a multivariate statistical technique, canonical correlation analysis (CCA), to illuminate the relationship between neurocognition and social cognition, in select white matter tracts believed to underlie social cognition, across a spectrum of SSD and healthy controls (HCs). Though CCA analysis does not lend itself to traditional hypothesis formulation or testing, we expect to find that white matter disintegrity in these tracts will predict social cognitive impairment, and also neurocognitive impairement, though perhaps only in some facets, and likely to a lesser degree.
+
+-----
+
+####Methods
+
+Data were extracted from the collaborative multi-centre study, 'Social Processes Initiative in Neurobiology of the Schizophrenia(s)' (SPINS), designed to identify neural circuitry related to social cognitive impairment, in nearly 500 adults who either have SSD or no psychiatric diagnosis (HC). The study has an extensive multi-modal imaging protocol, as well as 'deep phenotyping' of neurocognitive and social cognitive ability, from multiple days of participant assessment. 
+
+__DWI acquisition and preprocessing__. The present study analyzed diffusion weighted imaging (DWI) scans, which are sensitive to white matter microstructure. Despite prospective efforts to harmonize DWI acquisitions across sites, analyses revealed that derived metrics showed a large, non-linear scanner effect (i.e., different scanner models produced signals that varied nonlinearly as a function of brain tissue), and we have therefore elected to analyze only data collected from three matched 3T Siemens PRISMA MRIs with 64-channel head-coils. All DWI scans were a 60-direction EPI dual spin echo sequence with the following identical parameters: b=1000, 5 b0s, TR/TE=8800/85ms, FOV=256mm, 128x128 matrix, and 2mm isotropic voxels. DWI data were denoised, skull-stripped, aligned, and motion- and distortion-corrected using FSL and MRtrix software. Data underwent automated and manual quality control after every preprocessing step.
+
+<img src="../imgs/created/brain-05.png", align="right", width = "30%">
+
+__White matter tract estimation and ROI selection__. We used the Slicer `whitematteranalysis` computational pipeline to fit a tensor and perform deterministic whole brain fiber tracking. Streamlines were bundled via registration to the ORG atlas (Zhang 2018), and parcellated into 58 deep white matter tracts. From these tracts, we estimated fractional anisotropy (FA), which indicates the coherence with which water molecules diffuse along tissue, and is held to be a proxy of white matter integrity (values closer to 1 are indicative of healthy tissue; those closer to 0 indicate probable pathology). For this analysis, we elected to analyze data from the bilateral arcuate fasciculus (AF), uncinate fasciculus (UF), and inferior longitudinal fasciculus (ILF) (<font color="blue">__Figure 1__</font>). In past work, we have found FA values in the right AF, left UF, and right ILF to be highly related to social cognition (Voineskos, 2013; Wheeler, 2015; Behdinan, 2015). Here, we seek to replicate this finding, confirm its hemispheric sensitivity, and investigate if these regions are also implicated in neurocognition.
+
+__Neurocognitive and social cognitive assessment.__ Neurocognitive status was assessed via the MATRICS (Measurement and Treatment Research to Improve Cognition in Schizophrenia) Cognitive Consensus Battery (MCCB), which provides an evaluation of key cognitive domains relevant to SSD (Nuechterlein, 2008). In this analysis, we included  factor scores for `Processing speed`, `Attention & vigilance`, `Working memory`, `Verbal learning`, `Visual learning`, and `Problem solving`. Social cognitive ability was captured by factor scores representing lower-level `Simulation` and higher-level `Mentalizing` (derived from performance on the Penn Emotion Recognition Test (ER40), the Reading the Mind in the Eyes Test (RMET), the Empathic Accuracy (EA) task, and the Awareness of Social Inference Test-Revised (TASIT); Oliver, 2018). Importantly, all neurocognitive and social cognitive assessments were administered experimentally, and produce objective performance-based outcomes. Moreover, though all assessments are sensitive to impairement in SSD, a wide distribution of performance is evident across the SSD-HC continuum (no floor or ceiling performance). 
+
+__Canonical Correlation Analysis.__  CCA reveals multivariate patterns of linked dimensions between two sets of variables, often denoted as $X$ and $Y$. Our $X$ set was comprised of the 6 brain variables (namely FA in bilateral AF, ILF, and UF). The $Y$ set was comprised of 8 behavioural variables: 6 neurocognition variables, and 2 social cognition variables, described above. Though CCA is a correlational method that precludes causal inference, we can think of the $X$ set as the 'predictor' set, and the $Y$ set the 'criterion' set, given the theoretical assumption that brain structure underlies behaviour.
+
+-----
+
+####Results
+
+__Table 1.__ Participant characteristics (means and standard deviations).
+
+```{r participant table, echo=FALSE}
+
+#check names of variables
+vars <- c(
+#demo
+"Sex (F:M)",                   
+"Age",                  
+"Education (years)",            
+"WTAR",                 
+"BPRS",                  
+"SANS",
+#X set
+"AF (L)",                
+"AF (R)",                
+"UF (L)",                
+"UF (R)",               
+"ILF (L)",              
+"ILF (R)",    
+#Y set
+"Processing speed" ,     
+"Attention & vigilance", 
+"Working memory",        
+"Verbal learning",      
+"Visual learning",      
+"Problem solving",     
+"Simulation",            
+"Mentalizing"           
+)    
+
+#set up dataframe 
+tbl <- data.frame(matrix(ncol=3, nrow=length(vars))) #initialize
+names(tbl) <- c(paste0(c('Combined', 'HC', 'SSD'), ', n=', c(nrow(demo), table(demo$group))))
+row.names(tbl) <- vars
+ 
+##############################
+#entire group
+##############################
+
+#initialize counters (j = row, k = column)
+j <- 1
+k <- 1
+
+#for loop for categorical VARS
+for (var in vars[1:1]) {
+      
+  # count observations for each cluster
+  out <- table(demo[[var]])
+  tbl[j,k] <- paste(out, collapse = ':')
+  }
+
+# initialize counters (j = row, k = column)
+j <- 2
+k <- 1
+
+#for loop for continuous variables
+for (var in vars[2:length(vars)]) {
+  
+# calculate means and SDs for each scanner
+  M <- sprintf('%.02f', mean(demo[[var]], na.rm = TRUE))
+  SD <- sprintf('%.02f', sd(demo[[var]], na.rm = TRUE))
+  tbl[j,k] <- paste( M,' (',SD,')', sep='') 
+
+#move counter
+j <- j + 1 
+}
+
+##############################
+#HC 
+##############################
+
+#initialize counters (j = row, k = column)
+j <- 1
+k <- 2
+
+#for loop for categorical VARS
+for (var in vars[1:1]) {
+      
+  # count observations for each cluster
+  out <- table(demo$group, demo[[var]])[1,]
+  tbl[j,k] <- paste(out, collapse = ':')
+  }
+
+# initialize counters (j = row, k = column)
+j <- 2
+k <- 2
+
+#for loop for continuous variables
+for (var in vars[2:length(vars)]) {
+  
+# calculate means and SDs for each scanner
+  M <- sprintf('%.02f', mean(demo[demo$group == 'HC', var], na.rm = TRUE))
+  SD <- sprintf('%.02f', sd(demo[demo$group == 'HC', var], na.rm = TRUE))
+  tbl[j,k] <- paste( M,' (',SD,')', sep='') 
+  j <- j + 1 
+}
+
+##############################
+#SSD
+##############################
+
+#initialize counters (j = row, k = column)
+j <- 1
+k <- 3
+
+#for loop for categorical VARS
+for (var in vars[1:1]) {
+      
+  # count observations for each cluster
+  out <- table(demo$group, demo[[var]])[2,]
+  tbl[j,k] <- paste(out, collapse = ':')
+  }
+
+
+# initialize counters (j = row, k = column)
+j <- 2
+k <- 3
+
+#for loop for continuous variables
+for (var in vars[2:length(vars)]) {
+  
+# calculate means and SDs for each scanner
+  M <- sprintf('%.02f', mean(demo[demo$group == 'SSD', var], na.rm = TRUE))
+  SD <- sprintf('%.02f', sd(demo[demo$group == 'SSD', var], na.rm = TRUE))
+  tbl[j,k] <- paste( M,' (',SD,')', sep='') 
+  j <- j + 1 
+}
+
+#change NAs/NAs 
+tbl[5, 1] <- '--'
+tbl[6, 1] <- '--'
+tbl[5, 2] <- '--'
+tbl[6, 2] <- '--'
+
+```
+
+```{r participant table pretty, echo=FALSE}
+
+#make a pretty kable table
+tbl %>%
+  kable(escape=F, 
+        align = 'c') %>%
+  kable_styling(bootstrap_options=c('striped', 'hover', 'condensed'), full_width=F, position='float_left') %>%
+  pack_rows("Demographics and clinical", 1,6) %>%
+  pack_rows("Fractional anisotropy (FA) [$X$ set]", 7, 12) %>%
+  pack_rows("Neurocognition [$Y$ set]", 13, 18) %>%
+  pack_rows("Social cognition [$Y$ set]", 19, 20) %>%
+  #scroll_box(width = '450px', height = "600px") %>%
+  footnote(general = "The BPRS and SANS were only administered to participants with SSD; All neurocognition 
+                      scores are MATRICS MCCB factor scores and have been normed for age and sex (Nuechterlein 
+                      et al., 2008); Both social cognition scores are standardized factor scores that have 
+                      been adjusted for age and sex (Oliver et al., 2018).
+                      _HC = healthy control, SSD = schizophrenia spectrum disorder, WTAR = Wechsler Test of 
+                      Adult Reading, BPRS = Brief Psychiatric Rating Scale, SANS = Scale for the Assessment of 
+                      Negative Symptoms, AF = arcuate fasciculus, UF = uncinate fasciculus, ILF = inferior 
+                      longitudinal fasciculus, L = left, R = right._") 
+
+```
+
+__Participants.__ Participant characteristics are presented in <font color="blue">__Table 1__</font>. Data from 91 participants (37 HC, 54 SSD) were available for analysis after excluding participants for excessive missing observations, defined as ≥2/6 FA values (n=4 participants), ≥2/6 neurocognition factor scores (n=3), either social cognition factor score (n=4), or more than ≥3 missing values across all variables (n=0). Missing data from participants with below threshold missingness (n=30) were interpolated as the average value across their diagnostic group (HC, SSD). No participants were excluded for in-scanner motion or poor DWI data quality. Note that the 14 variables across the 91 participants exceeded the ideal 10:1 observation-to-variable ratio guideline for CCA, but not so greatly that dimensionality reduction techniques (e.g., PCA) were thought warranted to avoid over-fitting. In general, our sample was gender-balanced, young adult, well educated, and the SSD participants were clinically stable. 
+
+__Statistical preprocessing.__  All statistical tests were run with R version 3.5.3. We regressed age, sex, and motion from the $X$ set, as all are known to confound FA estimates, and also because both the neurocognition and social cognition factor scores in the $Y$ set had been normed for age and sex. For ease of interpretation, all variables in the $X$ and $Y$ sets were standardized via Z-scoring. All variables were found to be heteroscedastic, absent of outlying values, linearly related, and univariate and multivariate normal. We also examined raw correlations within and between the $X$ and $Y$ sets, to affirm our conceptual grouping. As expected, we found small-to-moderate positive correlations between brain variables ($R_{xx}$ matrix mean _r_=.27, range=-.05-.58) and strong correlations between neurocognitive and social cognitive variables ($R_{yy}$ matrix mean _r_=.49, range=.31-.85; see <font color="blue">__Supplementary Figure 1__</font>). We also found that several variables in the $R_{xy}$ matrix showed some multicolinearity, as visualized by an adjusted $R_{xy\omega}$ matrix (see <font color="blue">__Supplementary Figure 2__</font>). 
+
+```{r assumptions, echo=FALSE}
+
+#z-score
+#df[3:16] <- scale(df[3:16], center=TRUE, scale=TRUE) #do this in X and Y sets
+
+#check outliers
+#mvn(data=df, subset=3:16, multivariateOutlierMethod = "adj", showOutliers=TRUE)
+
+#check multivariate normality
+#mvn(data=df, subset=3:16, mvnTest='ma')
+
+```
+
+```{r correlations, echo=FALSE, results='hide'}
+
+#define X and Y vars
+X <- scale(df[3:8]) #6
+Y <- scale(df[9:16]) #8
+
+#calculate correlation matrices
+rxx <- cor(X, use = "p") #pairwise complete observations
+ryy <- cor(Y, use = "p")
+rxy <- cor(X,Y, use = "p")
+
+#calculate omega
+omega = t(solve(chol(rxx))) %*% rxy %*% solve(chol(ryy)) 
+
+#calculate difference matrix
+difference <- omega - rxy
+
+#find average correlations
+summary(c(rxx[upper.tri(rxx)], rxx[lower.tri(rxx)]))
+summary(c(ryy[upper.tri(ryy)], ryy[lower.tri(ryy)]))
+summary(c(rxy[upper.tri(rxy)], rxy[lower.tri(rxy)]))
+
+```
+
+```{r correlation visualizations, echo=FALSE, results='hide', message=FALSE}
+
+plotCorr_fn <- function(df){
+  ggcorrplot(df, lab=TRUE) +
+  theme(legend.position = 'top', 
+        plot.margin=grid::unit(c(0,0,0,0), "mm"))
+}
+
+#plot
+corr_rxx <- plotCorr_fn(rxx) #within x
+ggsave('corr_rxx.png', device = 'png', path='../imgs')
+
+corr_ryy <- plotCorr_fn(ryy) #within y
+ggsave('corr_ryy.png', device = 'png', path='../imgs')
+
+plot_rxy <- plotCorr_fn(rxy)
+ggsave('plot_rxy.png', device = 'png', path='../imgs')
+
+plot_omega <- plotCorr_fn(omega)
+ggsave('plot_omega.png', device = 'png', path='../imgs')
+
+plot_difference <- plotCorr_fn(difference)
+ggsave('plot_difference.png', device = 'png', path='../imgs')
+
+```
+
+
+```{r CCA significance, echo=FALSE, results='hide'}
+
+#first, compute the raw canonical correlations and standardized beta coefficients
+analysis <- cc(X,Y)
+analysis_cor   <- analysis$cor # the canonical correlations
+analysis_xcoef <- analysis$xcoef # standardized beta coefficients
+analysis_ycoef <- analysis$ycoef # standardized beta coefficients
+
+#get lambda and p values
+analysis.sig <- as.data.frame(p.asym(analysis$cor, nrow(df), ncol(X), ncol(Y), tstat = "Wilks"))
+
+#move into table
+analysis.sig <- tibble::rownames_to_column(analysis.sig, "root")
+
+#change values of root
+analysis.sig$root <- c('canonical variate 1-6', 'canonical variate 2-6', 'canonical variate 3-6',
+                       'canonical variate 4-6', 'canonical variate 5-6', 'canonical variate 6-6')
+
+#separate test of each canonical function
+
+#multivariate test of all canonical roots - Wilks' lambda, Hotelling's trace, Pillai's trace, and Roy's greatest characteristic root criterion (gcr).
+
+#make into pretty table
+knitr::kable(analysis.sig[, c(1, 3, 7)],
+  digits=3,
+  align = c('l', 'c', 'c'),
+  col.names = c('root', 'Wilk\'s $\\Lambda$', '_p_ value')) %>%
+  kable_styling(bootstrap_options=c('striped', 'hover', 'condensed'), full_width=F, position = 'float_left') %>%
+  save_kable("../imgs/SupTable1.png")
+
+```
+
+```{r CCA analysis, echo=FALSE, results='hide'}
+
+mycca <- candisc::cancor(X, Y)
+mycca %>% summary
+
+#gives stats
+mycca 
+
+#redundancy -- proportion of variance in X explained by Y, and vice versa
+redundancy(mycca)
+
+```
+
+<img src="../imgs/created/CCA-X-Y-06.png", align="right", width = "60%">
+
+__Selection of canonical variates__. The CCA analysis produced 6 canonical functions (analogous with the size of the smaller $X$ set). First, we employed a permutation test (500 bootstraps) to evaluate the null hypothesis of no correlation between the $X$ and $Y$ sets. Wilk's lambda confirmed correlation between the sets (_p_=.010, r=.559), with an overall effect size of 60% variance explained across the entire model. Similar values were seen when employing the Hotelling-Lawley Trace (_p_=.002, _r_=.629), the Pillai-Bartlett Trace (_p_=.004, _r_=.531), and Roy's Largest Root (_p_=.026, _r_=.221), with all canonical correlations included in all models. We proceeded to evaluate the functions stepwise for significance, magnitude, and redundancy (Hair, Anderson, and Tatham, 1998). Using Wilk's lambda, we found only the first function to be significant in isolation, $\lambda$=.397, _F_(48, 382.93)=1.65, _p_=.006, with a large magnitude, $R_c$=.571 (see <font color="blue">__Figure 2__</font> for a visualization of the association between all participants' $X$ abd $Y$ scores). The first function accounted for 45.1% of model variance (calculated as canonical roots, i.e., variance shared by the linear composites). The Stewart-Love redundancy index (i.e., variance in one set that can be explained by the other set) was 7.7% for the $X$ set and 12.5% for the $Y$ set. The low value for the $X$ set is unproblematic, given the clear delineation between the predictor and criterion variables. The low value for the $Y$ is of potentially more concern, but we hold it is not so low to warrant abandonning interpretation in the context of brain-behaviour research, and thus continue to interpret the first canonical function. <font color="blue">__Table 2__</font> shows standardized canonical function coefficients ($\beta$), structure coeffients ($r_s$), and squared structure coefficients $r_s^2$ (here analogous with communalities) for the first derived function. Canonical weights ($\beta$) are included mostly for illustrative purposes, but not interpreted, as they are unstable in the face of multicollinearity, which we have already demonstrated is a feature of the $R_{XX}$ matrix in <font color="blue">__Supplementary Figure 2__</font>. 
+
+___Table 2.___ 
+
+```{r evaluate model, echo=FALSE, warning=FALSE, message=FALSE, results='hide'}
+
+#decompose matrix
+usv <- svd(omega)
+
+#calculate canonical correlations
+canonical.correlations <- usv$d
+
+#check lambda  package values against hand correlation 
+test_lambda1 <- prod(1-(canonical.correlations^2)) #for the first variate
+test_lambda2 <- prod(1-(canonical.correlations[2]^2)) #for the first variate
+
+#permutation testing
+set.seed(123)
+perm.sig <- p.perm(X, Y, nboot=500, rhostart=1, type='Wilks')
+mean(perm.sig$stat)
+
+############################
+#standardized weights (B)
+###########################
+
+#standardized weights -x
+x.weights.std <- solve(chol(rxx)) %*% usv$u
+#x.weights.std <- t(data.frame(lapply(x.weights.std, type.convert), stringsAsFactors = F)) #get into df
+
+#standardized weights - y
+y.weights.std <- solve(chol(ryy)) %*% usv$v
+#y.weights.std <- t(data.frame(lapply(y.weights.std, type.convert), stringsAsFactors = F)) #get into df
+
+############################
+#structure coefficients
+###########################
+
+#structure coefficients - x
+x.structures <- rxx %*% x.weights.std
+
+#structure coefficients - y
+y.structures <- ryy %*% y.weights.std
+
+############################
+#canonical cross-loadings / redundancy
+###########################
+
+x.scores <- X %*% x.weights.std
+y.scores <- Y %*% y.weights.std
+
+red.x.yscores <- cor(X, y.scores)
+red.y.xscores <- cor(Y, x.scores)
+
+#can also calculate with a package
+#test <- analysis$scores$corr.X.yscores
+
+```
+
+```{r X and Y scatterplot, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+
+#we want to show association between scores in the X set and Y set, for each participant, for the first canonical function.
+
+#bind together data
+scores.plot <- as.data.frame(cbind(x.scores[, 1], y.scores[, 1], df$group))
+
+#change names for clarity
+names(scores.plot) <- c('Xset', 'Yset', 'group')
+
+#recode group variable for clarity
+ifelse(scores.plot$group == 2, 'SSD', 'HC')
+scores.plot$group <- as.factor(scores.plot$group)
+
+#make a scatter plot
+xysscatter <- ggplot(scores.plot, aes(x=Xset, y=Yset)) +
+  geom_point(size = 4, aes(shape=group), alpha=.8) +
+  geom_smooth(method=lm, color="black", alpha=.4) +
+  #scale_shape_manual(values=c(3, 16)) + 
+  theme_bw() +
+  theme(axis.ticks=element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.grid.major.x = element_blank())
+
+#save plot
+ggsave('xysscatter.png', device = 'png', path='../imgs', width = 5, height=3)
+
+```
+
+```{r model table, echo=FALSE}
+
+############################
+#make table
+###########################
+
+#for table, take just first column
+x.weights.std <- x.weights.std[, 1]
+x.weights.std <- t(data.frame(lapply(x.weights.std, type.convert), stringsAsFactors = F)) #get into df
+
+y.weights.std <- y.weights.std[, 1]
+y.weights.std <- t(data.frame(lapply(y.weights.std, type.convert), stringsAsFactors = F)) #get into df
+
+#bind together standardized weights
+weights <- rbind(x.weights.std, y.weights.std)
+
+#bind together structure coefficients
+structures <- rbind(x.structures, y.structures)
+
+#make table
+tbl <- as.data.frame(cbind(weights, structures))
+
+#add rownames as a variable
+tbl <- tibble::rownames_to_column(tbl, "variable")
+
+#redefine row names with full names
+tbl$variable <- c(
+  "AF (L)",                
+  "AF (R)",                
+  "UF (L)",                
+  "UF (R)",                
+  "ILF (L)",              
+  "ILF (R)",               
+  "Processing speed",      
+  "Attention & vigilance", 
+  "Working memory",        
+  "Verbal learning",      
+  "Visual learning",       
+  "Problem solving",       
+  "Simulation",            
+  "Mentalizing")
+
+#set up dynamic names for table
+label <- paste("$R_c$=", round(analysis$cor[1], 5))
+myHeader <- c(" " = 1, label = 2) # create vector with colspan
+names(myHeader) <- c(" ", label) #set names
+
+#make into pretty table
+tbl_plot <- tbl
+
+#take only first 3 columns -- adjust if want more variates
+tbl_plot <- tbl_plot[, 1:3]
+
+#add a column for the communality coefficient
+tbl_plot$communalities <- tbl_plot$V2 ^ 2
+
+#round
+tbl_plot[,2:4] <- round(tbl_plot[,2:4], 3) #shorten here, because formatting makes characters (?!)
+
+tbl_plot %>%
+  mutate(
+    V2 = ifelse((V2 > .45 | V2 < -.45),
+          cell_spec(V2, color='black', underline = T, bold = T), #no green 
+          cell_spec(V2, color='black'))) %>%
+  kable(escape=F, 
+        #digits = 3,
+        align = c('l', 'c', 'c'),
+        col.names = c('_Variable_', '$\\beta$', '$r_s$', '$r_s^2$ ($h^2$)')) %>%
+  kable_styling(bootstrap_options=c('striped', 'hover', 'condensed'), full_width=F, position='float_left') %>%
+  #add_header_above(header=myHeader) %>%
+  add_header_above(c(" " = 1, "_Function 1_" = 3)) %>%
+  pack_rows('X', 1, 6) %>%
+  pack_rows('Y', 7, 14) %>%
+  footnote(general = "$r_s$ values > .450 are emphasized, following convention;
+           $\\beta$ = standardized canonical function coefficient; 
+           $r_s$ = structure coefficient;
+           $r_s^2$ = squared structure coefficient, here also communality $h^2$") 
+
+```
+
+
+__Validation.__ Lastly, we validated our model via iterative feature removal, i.e., we removed one of 14 features from the combined $X$ and $Y$ sets, ran the CCA, and compared the 12 derived canonical correlation coefficients (note that 5 $R_c$ are derived for the 5 iterations in which a feature is removed from the smaller $X$ set). This procedure leveraged the CCA property that each variable relates to all other variables in both sets: if the model is stable, canonical correlation estimates will remain similar; if unstable, estimate will vary widely. Values were similar across all iterations, suggesting that our model is stable (<font color="blue">__Supplementary Figure 3__</font>). We were unable to perform more rigorous validation techniques, such as split-half reliability, or cross-validation on unseen samples, due to limitated sample size / unavailability.
+
+```{r validation, echo=FALSE, warning=FALSE, message=FALSE}
+
+X <- scale(df[3:8]) 
+Y <- scale(df[9:16]) 
+
+#remove from X
+X1 <- scale(df[4:8]) 
+X2 <- scale(df[c(3, 5:8)]) 
+X3 <- scale(df[c(3:4, 6:8)]) 
+X4 <- scale(df[c(3:5, 7:8)]) 
+X5 <- scale(df[c(3:6, 8)]) 
+
+#remove from Y
+Y1 <- scale(df[10:16]) 
+Y2 <- scale(df[c(9, 11:16)]) 
+Y3 <- scale(df[c(9:10, 12:16)]) 
+Y4 <- scale(df[c(9:11, 13:16)]) 
+Y5 <- scale(df[c(9:12, 14:16)]) 
+Y6 <- scale(df[c(9:13, 15:16)]) 
+Y7 <- scale(df[c(9:14, 16)]) 
+
+X1 <- cc(X1,Y)$cor
+X2 <- cc(X2,Y)$cor
+X3 <- cc(X3,Y)$cor
+X4 <- cc(X4,Y)$cor
+X5 <- cc(X5,Y)$cor
+Y1 <- cc(X,Y1)$cor
+Y2 <- cc(X,Y2)$cor
+Y3 <- cc(X,Y3)$cor
+Y4 <- cc(X,Y4)$cor
+Y5 <- cc(X,Y5)$cor
+Y6 <- cc(X,Y6)$cor
+Y7 <- cc(X,Y7)$cor
+original <- cc(X, Y)$cor
+
+
+#bind together
+XVALS <- as.data.frame(rbind(X1, X2, X3, X4, X5))
+YVALS <- as.data.frame(rbind(Y1, Y2, Y3, Y4, Y5, Y6, Y7, original))
+
+#add rownames to df -- so can colour geom
+XVALS$var<- rownames(XVALS)
+YVALS$var<- rownames(YVALS)
+
+#make a single df
+val_df <- rbind.fill(XVALS, YVALS)
+
+#melt for ggplot
+val_df <- melt(val_df, id.vars='var')
+
+#change values for colour
+val_df$var <- ifelse(val_df$var == 'original', TRUE, FALSE)
+
+#boxplot
+validation <- ggplot(val_df, aes(x=variable, y=value)) + 
+  geom_boxplot(outlier.shape = NA) +
+  geom_violin(fill='grey', alpha=.5) + 
+  geom_jitter(aes(colour = var, size= var)) +
+  theme_bw() +
+  xlab('') +
+  theme(axis.ticks = element_blank()) + 
+  scale_colour_manual(values = c("FALSE" = "black", "TRUE" = "red")) + 
+  scale_size_manual(values = c("FALSE" = 2, "TRUE" = 5)) + 
+  guides(color = FALSE, size = FALSE)
+
+#write out
+ggsave('validation.png', device = 'png', path='../imgs', height=9, width=7)
+
+```
+
+__Exploratory analysis.__ Though increasing evidence suggests that neurocognition and social cognition are dimensional constructs on which HC and SSD fall along a continuum, as opposed to discrete classes, we were curious to verify that HC and SSD participants exhibited a complementary pattern of correlation within or between $X$ and $Y$ sets. Because our sample size is insufficient for CCA, we merely observed their respective $R_{xx}$, $R_{yy}$, and $R_{xy}$ matrices (see <font color="blue">__Supplementary Figure 4__</font>). We found that correlation patterns appear to be similar across HC and SSD populations. 
+
+```{r exploratory, echo=FALSE, warning=FALSE, message=FALSE}
+
+#separate dfs for HC and SSD groups
+df_SSD <- df[df$group == 'SSD', ]
+df_HC <- df[df$group == 'HC', ]
+
+################
+#SSD first
+################
+
+#define X and Y vars
+X_SSD <- scale(df_SSD[3:8]) #6
+Y_SSD <- scale(df_SSD[9:16]) #8
+
+#calculate correlation matrices
+rxx_SSD <- cor(X_SSD, use = "p") #pairwise complete observations
+ryy_SSD <- cor(Y_SSD, use = "p")
+rxy_SSD <- cor(X_SSD,Y_SSD, use = "p")
+
+#plot
+corr_rxx_SSD <- plotCorr_fn(rxx_SSD) #within x
+ggsave('corr_rxx_SSD.png', device = 'png', path='../imgs')
+
+corr_ryy_SSD <- plotCorr_fn(ryy_SSD) #within x
+ggsave('corr_ryy_SSD.png', device = 'png', path='../imgs')
+
+corr_rxy_SSD <- plotCorr_fn(rxy_SSD) #within x
+ggsave('corr_rxy_SSD.png', device = 'png', path='../imgs')
+
+################
+#HC
+################
+
+#define X and Y vars
+X_HC <- scale(df_HC[3:8]) #6
+Y_HC <- scale(df_HC[9:16]) #8
+
+#calculate correlation matrices
+rxx_HC <- cor(X_HC, use = "p") #pairwise complete observations
+ryy_HC <- cor(Y_HC, use = "p")
+rxy_HC <- cor(X_HC,Y_HC, use = "p")
+
+#plot
+corr_rxx_HC <- plotCorr_fn(rxx_HC) #within x
+ggsave('corr_rxx_HC.png', device = 'png', path='../imgs')
+
+corr_ryy_HC <- plotCorr_fn(ryy_HC) #within x
+ggsave('corr_ryy_HC.png', device = 'png', path='../imgs')
+
+corr_rxy_HC <- plotCorr_fn(rxy_HC) #within x
+ggsave('corr_rxy_HC.png', device = 'png', path='../imgs')
+
+```
+
+-----
+
+####Discussion
+
+__Summary.__ We performed a CCA on a small $X$ set of white matter tracts (bilateral AF, UF, ILF), and a $Y$ set of neurocognitive and social cognitive variables, across 91 participants along the HC-SSD spectrum. CCA revealed one significant relationship between these sets, $R_c$=.571. Thus, it appears that the structural integrity of these white matter tracts is generally predictive of neurocognitive and social cognitive ability. In addition to evalulating the strength of correlation between $X$ and $Y$ sets, CCA allows for examination of which variables _within_ each set contributed most to the correlation (i.e., CCA is highly interpretable). Commonly evaluation metrics are reported in <font color="blue">__Table 2__</font>.
+
+__Interpretation of structure coefficients.__ Structure coefficients ($r_s$) reveal the correlation between a given variable and the synthetic set to which it belongs, irrespective of the contribution of other variables. Examination of structure coefficients for the $X$ set reveals that FA values in the right ILF contributed most highly ($r_s$=.832), followed by the left ILF ($r_s$=.509) and right AF ($r_s$=.464). In contrast, the left AF and right UF made modest contributions, and the left UF a negligible contribution, suggesting these tracts may not be very strongly related to the synthetic variable combining neurocognition and social cognition. Moreover, the left UF shows a negative structure coefficient, meaning that it is inversely related to the other brain variables. This is surprising, given that the left UF has, in prior lab work, been found to be highly and robustly associated with social cognition. This discrepancy may be the result of a larger sample, different characterization of social cognition, and/or different processing of DWI data; future lab work will have to examine this discrepancy more carefully.
+
+Examination of the $Y$ set shows some very high structure coefficients. Specifically, the social cognition variables `Simulation` ($r_s$=.911) and `Mentalizing` ($r_s$=.943) made substantive contributions. Additionally, four of six neurocognition variables made large contributions: `Processing speed` ($r_s$=.593), `Working memory` ($r_s$=.512), `Verbal learning` ($r_s$=.547), and `Visual learning` ($r_s$=.489). All of the $Y$ set structure coefficients have the same sign, indicating that all variables are positively related. It is telling that the `Attention & vigilance` and `Problem solving` factors do not reveal high structure coefficients: this suggests that these factors are not strongly related to white matter integrity in the included tracts, and also provides evidence that neurocognition has multidimensional representation in the brain, as well as behaviour.
+
+__Interpretation of squared structure coefficients / communalities.__ We also report squared structure coefficients ($r_s^2$), which indicate the proportion of variance that a given variable linearly shares with the synthetic variable generated from that variable's set. In the case of interpreting a single canonical function, the squared structure coefficients are analogous to canonical communality coefficients ($h^2$), which provide a summative measure of how useful a given variable was to the solution across all interpreted canonical functions. Here, we see that the right ILF was most of use to the $X$ set, and the `Simulation` and `Mentalizing` variables were of high use to the $Y$ set. This is very consistent with, and serves as a replication of, our past findings which indicate the strong relationship between right ILF disintegrity and social cognitive impairment.
+
+-----
+
+####Conclusion
+
+We used the multivariate technique CCA to uncover links between integrity of white matter microstructure (operationalized as FA) and domains of neurocognition and social cognition. To the best of our knowledge, this is the first study to examine how tracts implicated in social cognition may also subserve select facets of neurocognition, in a large sample of SSD and HCs.
+
+At least one aspect of CCA makes it particularly attractive to the task of elucidating brain and behaviour links in psychiatry: it holistically integrates observations from transdiagnostic groups (here, HC and SSD), and thus avoids the increasingly noted pitfalls of case-control design. Accumulating evidence suggests that the neurobiology underlying particular deficits in SSD is also evident in HC. Our results, though preliminary, are suggestive that this relationship holds for the association between white matter microstructure and neurocognitive and social cognitive deficits in both HC and SSD. Future research should further test this association transdiagnostically, for example, by including data from other disorders with noted neurocognitive and social cognitive deficits. 
+
+Despite these promising links, several limitations should be noted, both of the present study design and the CCA statistical method. In relation to the former, perhaps the greatest limitation is that our current sample size does not allow for the inclusion of a greater number of white matter tracts in the $X$ set. Increasing our sample size will allow for simultaneous examination of tracts hypothesized to underlie neurocognition, for example, as well as the inclusion of additional data types, such as genomics, which are likely to capture differing sources of biological heterogeneity. Relatedly, obtaining an independent replication sample is essential for cross-validation, i.e., the ability to assess the model's ability to generalize to unseen, unrelated samples. Pertaining to methods, it must be remembered that as a linear model, CCA assumes additive covariation patterns, which may prove a simplification of brain-behaviour relationships. Finally, CCA is 'merely' correlational; investigating the cause(s) of the reported correlations remains a challenging issue for future experimental work. 
+
+Nonetheless, multivariate analyses that illuminate the shared and distinct neural basis of disabling deficits, such as neurocognitive and social cognitive impairement, are sure to accelerate the design of novel, biologically-targeted treatments for SSD, and psychiatry more broadly.
+
+-----
+
+__Data availability__. The data reported in this paper have been deposited in the RDoC database: [R01-MH102324-01A1](http://grantome.com/grant/NIH/R01-MH102324-01A1)
+
+__Code availability__. All analysis code is available here: [https://github.com/navonacalarco/PSYC2002_finalAssignment](https://github.com/navonacalarco/PSYC2002_finalAssignment)
+
+-----
+
+####References
+
+Behdinan, T., Foussias, G., Wheeler, A.L., Stefanik, L., Felsky, D., Remington, G., Rajji, T.K., Chakravarty, M.M., Voineskos, A.N. (2015). Neuroimaging predictors of functional outcomes in schizophrenia at baseline and 6-month follow up. _Schizophrenia Research_., 169(1), 69-75.
+
+Hair, J.F Jr., Anderson, R.E., Tatham. R.L., Black, W.C. (1998). Chapter 8. Multivariate Data Analysis, 5th edition. _Prentice Hall_.
+
+Nuechterlein, K.H., Green, M.F., Kern, R.S., Baade, L.E., et al. (2008). The MATRICS Consensus Cognitive Battery, Part 1: Test selection, reliability, and validity. _American Journal of Psychiatry_, 165(2), 203-213. 
+
+Oliver, L.D., Haltigan, J.D., Gold, J.M., Foussias, G., DeRosse, P., Buchanan, R.W., Malhotra, A.K., Voineskos, A.N. (2019). Lower- and higher-level social cognitive factors across individuals with Schizophrenia Spectrum Disorders and healthy controls: Relationship with neurocognition and functional outcome. _Schizophrenia Bulletin_, 45(3), 629-638.
+
+Voineskos, A.N., Foussias, G., Lerch, J., Felsky, D., Remington, G., Rajji, T.K., Lobaugh, N., Pollock, B.G., Mulsant, B.H. (2013). Neuroimaging evidence for the deficit subtype of schizophrenia. _JAMA Psychiatry_, 70(5), 472-480.
+
+Wheeler, A.L., Wessa, M., Szeszko, P.R., Foussias, G., Chakravarty, M.M., Lerch, J.P., DeRosse, P., Remington, G., Mulsant, B.H., Linke, J., Malhotra, A.K., Voineskos, A.N. (2015).  Further Neuroimaging Evidence for the Deficit Subtype of Schizophrenia: A Cortical Connectomics Analysis. _JAMA Psychiatry_, 72(5), 446-455.
+
+Zhang, F., Wu, Y., Norton, I., Rathi, Y., Makris, N., O’Donnell, L.J. (2018). An anatomically curated fiber clustering white matter atlas for consistent white matter tract parcellation across the lifespan. _NeuroImage_, 179, 429-447.
+
+-----
+
+####Supplementary Figures
+
+
+![](../imgs/created/correlation_matrices-01.png)
+__Supplementary Figure 1__. Correlation matrices for the $X$ and $Y$ sets. __A.__ The $R_{xx}$ matrix (brain variables) generally shows small-to-moderate positive correlations between variables. __B.__ The $R_{yy}$ matrix (neurocognition and social cognition variables) shows moderate-to-strong positive correlations between all variables. 
+
+-----
+
+![](../imgs/created/omega_matrices-02.png)
+__Supplementary Figure 2__. Cross-correlation, omega, and difference matrices. __A.__ The The $R_{xy}$ matrix shows cross-correlations between variables in the $X$ and $Y$ sets. We see some evidence of multicolinearity. __B.__ The omega matrix shows the $R_{xy}$ matrix adjusted for redundancy. The omega matrix is calculated as the product of the inverse of the Choleski factorization of the $R_{xx}$ matrix, the $R_{xy}$, and the inverse of the Choleski factorization of the $R_{xy}$ matrix; __C.__ The difference matrix shows the magnitude of difference between the original $R_{xy}$ and difference matrices.
+
+-----
+
+<img src="../imgs/created/validation-03.png", width = "50%">
+<br>
+__Supplementary Figure 3__. Model validation. We validated our model using iterative feature removal, i.e., we removed one of 14 features from the combined $X$ and $Y$ sets, ran the CCA, and compared the derived canonical correlation coefficients. The plot shows the 12 comparions (black dots), as well the original model (red dots), across all 6 canonical functions. Note that the 6th canonical function has values only from 7 of the 12 iterations, as the $X$ set had 5 features in 5 of the 12 iterations. We see that, though iteratively removing a variable does alter the canonical correlation coefficients, the change is not drastic, nor statistically significant. 
+
+-----
+
+![](../imgs/created/SSD_HC-04.png)
+__Supplementary Figure 4__. Raw correlation matrices within and between HC and SSD groups. We compared raw correlation matrices within and between HC and SSD groups, to gain a sense of if patterns between both groups were generally representative of both groups, or differentially driven by one. Our sample size was insufficient to run CCA; thus, we inferred on the basis of visual review that all matrices seem comparable between HC and SSD.
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,57 @@
+---
+title: "01_dataMunging_demographics"
+output: html_document
+---
+
+```{r setup}
+
+#load libraries
+library(dplyr)
+
+#read csv
+df <- read.csv('../data/out/SPINS_REDCap_2019-11-23.csv', stringsAsFactors = F)
+
+```
+
+```{r munging}
+
+#isolate names demographic variables
+demo_vars <- grep("demo", names(df), value=TRUE)
+
+#combine demo_vars with ID and class
+df <- df[, paste0(c('record_id', 'redcap_event_name', demo_vars))]
+
+#select only the demographic variables we care about
+df <- df[, c("record_id",
+             "redcap_event_name",
+             "demo_age_study_entry", 
+             "demo_sex_birth",                  
+             "demo_highest_grade_self",         
+             "demo_highest_grade_mom",          
+             "demo_highest_grade_dad")]               
+
+#rename demographic variables for clarity
+names(df) <- c('participant_id',
+               'group',
+               'age',
+               'sex',
+               'education',
+               'education_mother',
+               'education_father')
+
+#recode factors variables, so no confusion with levels
+df$group <- ifelse(df$group == 'case_arm_2', 'SSD', 'HC')
+df$sex   <- ifelse(df$sex == 1, 'F', 'M')
+
+df$education_mother <- ifelse(df$education_mother == 101, NA, df$education_mother) 
+df$education_father <- ifelse(df$education_father == 101, NA, df$education_father) 
+
+```
+
+```{r write out}
+
+#write csv
+write.csv(df, paste0('../data/out/demo_', Sys.Date(), '.csv', sep=''), row.names = F) #includes only eligible participants
+
+```
+

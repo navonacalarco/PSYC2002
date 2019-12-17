@@ -1,0 +1,34 @@
+---
+title: "01_dataMunging_negativeSymptoms"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+#bring in data
+df <- read.csv('../data/raw/SPINS_DATA_2019-11-23.csv', stringsAsFactors = F)
+
+```
+
+
+```{r}
+
+#subset of variables
+df <- df[, c('record_id', 
+'sans_sub_affective_flat_blunt', #affective flattening or blunting
+'sans_sub_alogia', #alogia
+'sans_sub_avolition_apathy', #avolition/apathy
+'sans_sub_asocial_anhedonia' #asociality/anhedonia
+)]
+
+```
+
+```{r write csv}
+
+#write csv
+write.csv(df, paste0('../data/out/negSymptoms_', Sys.Date(), '.csv', sep=''), row.names = F) #includes all participants
+
+#note: other scripts remove ineligible participants. this data contains all participants; need to be removed upon merge, etc.
+
+```
+

@@ -1,0 +1,383 @@
+---
+title: | 
+  | PSY2002 Assignment 4 
+  | Structural Equation Modeling
+output:
+  html_document:
+    toc: true
+    toc_depth: 5
+    code_folding: hide
+---
+
+submitted by: Navona  
+due date: 2019-11-26  
+last ran: `r Sys.Date()`     
+website: [http://rpubs.com/navona/PSY2002_assignment04](http://rpubs.com/navona/PSY2002_assignment04)
+
+-----
+
+```{r setup, include=FALSE}
+
+#load libraries
+libraries <- c('readxl', 'lavaan', 'semPlot', 'cowplot', 'ggplot2', 'ggpubr', 'jpeg', 'corrplot', 'kableExtra', 'tidyverse') #list
+lapply(libraries, require, character.only = T) #load 
+
+#read data
+AD <- read_excel("Causal modeling assignment data.xlsx")
+
+```
+
+#####Question 1.
+
+Build a path model, using the variables Fluid, Verbal, and Social Intelligence to predict Love for Basketball. 
+
+__a. How do you define the model?__
+
+```{r 1_a, echo=FALSE}
+
+#define the model
+First.Model <- 'Luv4Baskt ~ FluidInt + VerbInt + SocInt' #Luv4Baskt is observed/manifest
+
+```
+
+`First.Model <- 'Luv4Baskt ~ FluidInt + VerbInt + SocInt'` 
+
+-----
+
+__b. Run the model using `sem()`. Draw the appropriate path model (outcome, predictors, predictor covariance, and outcome residual error) and label all paths with their standardized weights.__
+
+```{r 1_b, echo=FALSE, include=FALSE}
+
+#run the model
+q1.model = sem(First.Model, data = AD)
+
+#review the model
+summary(q1.model, standardized=TRUE, fit.measures=TRUE)
+parameterestimates(q1.model, standardized = T)
+
+```
+
+```{r 1_b path diagram, warning=FALSE, message=FALSE}
+
+#use semPaths package for plotting
+semPaths(q1.model, 
+         what='std', #plot the standardize scores 
+         rotation=2, #to look like class example
+         nCharNodes=0, #plot full variable name
+         sizeMan=12, #font of manifest variables
+         edge.color='black', #edge colour
+         edge.label.cex= 1, #edge text size
+         nDigits = 3, #number of floats
+         fade=FALSE, #edges aren't gradient colour
+         style='lisrel', #remove residual variances for predictors
+         curve=2, #increase angle of covariance curve
+         filetype='jpg') #write out as an image
+
+#read sem image back in
+sem_image <- readJPEG("qgraph.jpg") #read the image back in
+
+#feed sem image into ggplot, and annotate
+qplot(1:10, 1:10, geom="blank") + #define graph size
+  background_image(sem_image) + #set sem image as background
+  annotate("text", x = 9.4, y = 6, label = "error") + #add error
+  annotate("text", x = 7, y = 9, size = 7, parse = TRUE, label = as.character(expression(paste(chi^2, "(0, N=200) = 0.000, ", italic("p"), "<0.000")))) + #add statistics
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank())
+
+```
+<br>
+_Note: Square nodes indicate manifest variables. Directed edges indicate linear regression parameters (thicker lines indicate larger path coefficients). Dashed bidirectional edges indicate covariances, and assumes that the variables are exogenous. Residual variance (error) of the predicted variable is indicated with thick solid arrow._
+
+-----
+
+__c. Describe and interpret the regression analysis as you would for publication. Comment on which paths are significant and include the proportion of variance in `Luv4Baskt` that is predicted by its predictors.__
+
+Our path model tested if fluid, verbal, and/or social intelligence predicted love for basketball. We found that `FludInt` was not a significant indicator of love for basketball (_p_=.067), but `VerbInt` (_p_=.004) and `SocInt` (p=<.001) were. Specifically, `FludInt` accounted for 1.2% of the variance, where as `VerbInt` and `SocInt` accounted for 4% and 10.3%, respectively. 
+
+We also examined the global model fit with chi-square ($X^2$), which measures of deviance between the model-implied covariance matrix, and the observed covariance matrix. The $X^2$ statistic was highly significant (_p_<.001), indicating poor fit. 
+
+-----
+
+#####Question 2.
+
+__a. Construct the same model as for Question 1, but this time, constrain the co-variances between the MVs to be 0. What is the chi-square and _p_ value for this model? Is this model a good fit for this data?__
+
+```{r 2a, results='hide'}
+
+#define the model 
+Second.Model <- 'Luv4Baskt ~ FluidInt + VerbInt + SocInt
+FluidInt ~~ 0*VerbInt
+FluidInt ~~ 0*SocInt
+VerbInt  ~~ 0*SocInt'
+
+#run the model
+q2.model = sem(Second.Model, data = AD)
+
+#summarize
+summary(q2.model)
+
+```
+
+When we constrained the co-variances between the predictors, all three paths were significant (fluid intelligence _p_ = .036; verbal _p_ = .001, social _p_ < .001). However, the model fit remains poor, $X^2$(3, N=200) = 107.362, _p_<.000.
+
+Likewise, the $X^2/df$ ratio (Joreskog, 1969), which provides a measure of badness-of-fit, is very large (35.787); a ratio value of <1 is a typical heuristic of good fit.
+
+-----
+
+__b. Look at the Modification Indices for this model. What is expected to reduce the chi-square value the most, and how much is the chi-square value predicted to change by?__ 
+
+<button class="btn btn-secondary" data-toggle="collapse" data-target="#BlockName"> Click to show covariance modification indices </button>  
+<div id="BlockName" class="collapse">  
+
+```{r 2b}
+
+modification_q2 <- modindices(q2.model)
+modification_q2[modification_q2$op == "~~",] #sort to include only indices for covariance
+
+```
+</div>
+<br>
+
+Modication indices provide a rough estimate of how well the $X^2$ test statistic of a model would improve, if a particular parameter(s) were unconstrained, i.e., free to covary with others. If parameter pairs with a high index are freed, model fit may improve.
+ 
+We see that freeing the variance between `VerbInt` and `SocInt` is expected to reduce $X^2$ the most. Specifically, the $X^2$ value is expected to reduce by an index of 46.992 (`mi`), and it is expected that the standardized expected parameter change (`sepc.all`) will take a value of .485.
+
+-----
+
+__c. How would you define a new model with the variance unconstrained using the information from question 2(b)? Run the new model using `sem()` and give the new chi-square and p values.__ 
+
+```{r, warning=F, results='hide'}
+
+#define new model
+Second.Model.Mod <- 'Luv4Baskt ~ FluidInt + VerbInt + SocInt
+VerbInt  ~~ SocInt
+FluidInt ~~ 0*VerbInt
+FluidInt ~~ 0*SocInt'
+
+#run new model
+q2.model.mod = sem(Second.Model.Mod, data = AD)
+
+#see test statistic
+show(q2.model.mod)
+
+```
+
+To run a new model with variance unconstrained between `VerbInt` and `SocInt`, but leave the varaince contrained between the other two combinations of manifest variables, we code:  
+`Second.Model.Mod <- 'Luv4Baskt ~ FluidInt + VerbInt + SocInt`    
+`VerbInt ~~ SocInt`  
+`FluidInt ~~ 0*VerbInt`  
+`FluidInt ~~ 0*SocInt'`  
+
+The test statistic for the modified model, with freed covariance between `VerbInt` and `SocInt`, is $X^2$(2, N=200) = 53.796, _p_<.000. Thus, our model remains a poor fit to our data.
+
+-----
+
+#####Question 3.
+
+Now we want to build a model with two unobserved (latent) variables, each of which underlies 3 of the observed variables. Generate a model where Fluid, Verbal and Social Intelligence are indicators for Factor 1 (“Intelligence”), while Raptors Dedication (`RapDed`), Psychology Today (`PsyToday`) and Stock Market (`StkMrkt`) are indicators for Factor 2 (“Long-term life satisfaction (LTLS)”). We also think that Intelligence will predict LTLS, so define a regression between LTLS and Intelligence in the model. 
+
+__a. In a couple of sentences, explain what we are trying to test with this model (what is our hypothesis)?__
+
+Path analyses allow for a separate 'measurement' and 'structural' hypothesis. Our measurement hypothesis is that (i) fluid, verbal, and social intelligence are indicators of global intelligence, and that (ii) dedication to the Raptors, reading 'Psychology Today', and investing in the stock market are indicators of long-term life satisfacton. Our structural hypothesis is that long-term life satisfaction has a positive effect on global intelligence. 
+
+-----
+
+__b. How do you define this new model?__
+
+```{r 3b, echo=FALSE}
+
+#define the model
+Third.Model <- 'Intelligence =~ FluidInt + VerbInt + SocInt 
+LTLS =~ RapDed + PsyToday + StkMrkt
+Intelligence ~ LTLS'
+
+```
+
+`Third.Model <- 'Intelligence =~ FluidInt + VerbInt + SocInt`   
+`LTLS =~ RapDed + PsyToday + StkMrkt`  
+`Intelligence ~ LTLS'`  
+
+-----
+
+__c. Run the model using sem(). What are the standardized coefficients for our MVs, and the beta value between our LVs?__
+
+```{r 3c, results='hide', echo=FALSE}
+
+#run the model
+q3.model <- sem(Third.Model, data = AD)
+
+#summarize
+q3.model_pars <- parameterestimates(q3.model,standardized = TRUE)
+
+```
+
+The standardized coefficients for the manifest variables are as follows:
+
+```{r 3 c table coef}
+
+#make table of manifest coefficients
+q3.model_pars[1:6, c(1:3, 11)] 
+
+```
+
+
+The beta value between the latent variables (`Intelligence` and `LTLS`) is β=.651:
+
+```{r 3 c table beta}
+
+#beta value between latent variables
+q3.model_pars[7, c(1:3, 11)] 
+
+```
+
+
+-----
+
+__d. How good is the model at explaining our observed data? Give the chi-square and p-value.__
+
+```{r 3d, echo=FALSE, output=FALSE, results='hide'}
+
+show(q3.model)
+
+```
+
+$X^2$(8, N=200)=17.538, _p_=.025. Thus, the model fit remains poor (but, it is improving).
+
+-----
+
+__e. Look at the modification indices and discuss what changes you might make to the model to improve the fit.__
+
+Click to show table of modification indices:
+
+<button class="btn btn-secondary" data-toggle="collapse" data-target="#BlockName2"> Click to show modification indices </button>  
+<div id="BlockName2" class="collapse">  
+
+```{r 3 e table}
+
+#print indices
+(modification_q3 <- modindices(q3.model))
+
+```
+</div>
+<br>
+
+Most modification indices (`mi`) are relatively low, suggesting that our model wouldn't change much by freeing covariance between pairs of variables. However, one pair has an `mi` value above 10:  
+
+```{r 3e}
+
+subset(modification_q3, mi > 10) #sort to examine `mi` values over 10
+
+```
+
+When we sort our table to `mi` values > 10, we see that we may be able to improve the fit by freeing the covariance between `FluidInt` and `StkMrkt`. 
+
+-----
+
+#####Question 4.
+
+Now let’s test whether a model holds similarly for two different groups. For this question, we are going to test whether a given model holds for both West coast and East coast Canadians. Generate a model with a single unobserved variable (Intelligence) predicting the three observed intelligence measures and Love for Basketball. Free the variance for the first MV, and constrain the variance in the LV ‘Intelligence’ to 1.
+
+__a. How do you define this model?__
+
+```{r 4a, echo=FALSE}
+
+#define the model
+Fourth.Model <- 'Intelligence =~ NA*FluidInt + VerbInt + SocInt + Luv4Baskt
+Intelligence ~~ 1*Intelligence' 
+
+```
+
+`Fourth.Model <- 'Intelligence =~ NA*FluidInt + VerbInt + SocInt + Luv4Baskt`  
+`Intelligence ~~ 1*Intelligence'`
+
+-----
+
+__b. Run the model using `sem()`. Then, run the model with loadings and intercepts equal between groups. Calculate an ANOVA between the original model and the group-equal model. Is there a difference between groups?__
+
+```{r, warning=FALSE}
+
+#run the model
+q4.model <- sem(Fourth.Model, data = AD, group = "Group")
+
+#run a new model with loading and intercepts equal between groups
+q4.model.eq <- sem(Fourth.Model, data = AD,group = "Group",
+                   group.equal= c("loadings","intercepts"))
+
+#calculate an ANOVA
+anova(q4.model,q4.model.eq)
+
+```
+
+The test statistic for this difference model is $X^2_{diff}$(7, N=200)=1.9798, _p_=.9609.
+
+Thus, the full equality model suggests that there is not a difference between groups, i.e., there is no difference between the three predictors of Intelligence, between West coast and East coast Canadians.
+
+-----
+
+__c. Next, we have reason to think that Westerners and Easterners differ in the influence of Intelligence on Verbal and Social scores, but the two groups have the same relationship between Love for Basketball and Fluid Intelligence. Run a new model with the appropriate freed and fixed parameters between groups.  Compare this partial equality model to the earlier full equality model.__
+
+```{r 4c, warning=FALSE}
+
+#equality constraint over only some parameters
+frees <- c("Intelligence =~ VerbInt", "Intelligence =~ SocInt")
+
+#run model
+q4.model.partial <- sem(Fourth.Model, data = AD,
+                        group = "Group",
+                        group.equal= c("loadings","intercepts"),
+                        group.partial = frees)
+
+#calculate ANOVA to compare between full equality model and partial fit model
+anova(q4.model.eq, q4.model.partial)
+
+```
+
+The test statistic for this difference model is $X^2_{diff}$(2, N=200)=.21806, _p_=.8967.
+
+The described partial equality model suggests that there is not a difference between groups, i.e., there is no difference between the three predictors of Intelligence, between West coast and East coast Canadians. This is the same result as the full equality model above.
+
+-----
+
+__d. In a few sentences, summarize and interpret your results for this model. Discuss what MVs contribute most significantly, and whether they differ between groups.__
+
+
+```{r 4 d, echo=FALSE, results='hide'}
+
+#summarize partial model
+show(q4.model.partial)
+summary(q4.model.partial)
+q4_parEst <- parameterestimates(q4.model.partial, standardized = TRUE)
+
+```
+
+<button class="btn btn-secondary" data-toggle="collapse" data-target="#group1"> Click to show parameter estimates for group 1 </button>  
+<div id="group1" class="collapse"> 
+
+```{r 4 d table group 1}
+
+subset(q4_parEst, group == 1)
+
+```
+
+</div>
+
+<button class="btn btn-secondary" data-toggle="collapse" data-target="#group2"> Click to show parameter estimates for group 2 </button>  
+<div id="group2" class="collapse"> 
+
+```{r 4 d table group 2}
+
+subset(q4_parEst, group == 2)
+
+```
+
+</div>
+<br>
+
+The partial equality model provides a good model fit. Across both groups, our test statistic is $X^2$(9, N=200)=4.835, _p_=.848.
+
+The $X^2$ test statistic for group 1 (Western Canadians) is 0.964. The order of the manifest variables' contribution is `SocInt` (β=0.808), followed by `Luv4Baskt` (β=0.611), `VerbInt` (β=0.589), and `FluidInt` (β=0.566).
+
+The $X^2$ test statistic for group 2 (Eastern Canadians) is 3.871. A similar though not identical pattern exists regarding the order of the manifest variables' contribution: `Socint` (β=0.798), `VerbInt` (β=0.626), `Luv4Baskt` (β=0.610), `FluidInt` (β=0.576).
+
+-----

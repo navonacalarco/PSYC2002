@@ -1,0 +1,11 @@
+---
+title: "01_datingMunging_scog"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+#read in data
+df <- read.csv('../data/raw/soc_cog_factor_scores_2019-10-08.csv', stringsAsFactors=FALSE) #from Lindsay's analysis
+
+```

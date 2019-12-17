@@ -1,0 +1,532 @@
+---
+title: | 
+  | PSY2002 Assignment 1
+output: 
+  html_document:
+    toc: true
+    toc_depth: 6
+    toc_float: false
+---
+
+submitted by: Navona  
+due date: 2019-10-08  
+last ran: `r Sys.Date()`     
+website: [http://rpubs.com/navona/PSY2002_assignment01](http://rpubs.com/navona/PSY2002_assignment01)
+
+-----
+
+
+```{r setup, include=FALSE, warning=FALSE, echo=FALSE}
+
+#list libraries we want to use
+libraries <- c('psych', 'readxl', 'ggplot2', 'factoextra', 'knitr', 'kableExtra', 'reshape2', 'dplyr', 'gridExtra')
+#FactoMineR, explor, ggcorrplot, GPA rotation, ggrepel
+#psych has KMO fn
+#factoextra has fancy scree
+
+#load all libraries
+lapply(libraries, require, character.only = T)
+
+#read in data
+data<- read_excel("Assignment1_data.xlsx")
+
+```
+
+####Question 1: PCA, unrotated
+
+<br>
+__a) Evaluate KMO and Bartlett’s tests: do we have evidence to move ahead with the PCA?__
+
+```{r 1a_i, echo=FALSE}
+
+#subset dataset to first 7 columns
+df <- data[1:7]
+
+#evaluate KMO
+df_cor <- cor(df, use='complete.obs') #first, compute correlation matrix, exclude NAs
+df_KMO <- KMO(df_cor) #perform KMO
+
+```
+
+<u>The KMO heuristic</u> is used to assess if the correlation matrix of a given dataset expresses enough variation, across enough variables, to proceed with PCA, via a measure called MSA (measure of sampling adequacy). We see that the _overall_ MSA is `r df_KMO[['MSA']]`. A general rule of thumb is that an overall MSA ≥.7 indicates sufficient probable common variance to proceed with PCA. It is also important that _'enough'_ variables express sufficient common variance. We see that the minimum MSA, across `r ncol(df)` variables, is `r min(df_KMO[['MSAi']])` (associated with the `r names(df_KMO[['MSAi']])[which.min(df_KMO[['MSAi']])]` variable). A general rule of thumb is that no (or few) variables should fall below an MSA ≤.5. Thus, on both grounds, our data meet the KMO heuristic criteria to proceed with PCA.
+
+```{r 1a_ii, echo=FALSE}
+
+#evaluate Bartlett
+bart <- cortest.bartlett(df_cor, n=nrow(df)) 
+
+```
+
+<u>Bartlett's test</u> essentially tests the null hypothesis that the correlation matrix of our dataset is uncorrelated: if we reject the null, we believe there is common variance and we proceed with PCA; if we fail to reject the null, we don't need to perform a PCA at all. Barlett's test is typically used in small datasets under N ≤ 100, which is close to our N of `r nrow(df)`, so it is an appropriate test here. Our results are (very) significant, with a $\chi^2$ value of `r bart$chisq` and a p-value of `r bart$p.value`. This means our correlation matrix is appropriately classed as a correlation matrix and not an identity matrix (the variance in the dataset better fits an ellipse, than a sphere), and our data meet the Bartlett criteria to proceed with PCA.
+
+<br>
+__b) How many variables components have eigenvalues greater than one, and what were their eigenvalues?__
+
+```{r 1b, echo=FALSE}
+
+#get the eigenvalues of the correlation matrix
+eig_cor <- eigen(df_cor)
+
+```
+
+We see that `r sum(eig_cor$values > 1)` components have eigenvalues greater than 1. Their values are `r eig_cor$values[eig_cor$values > 1][[1]]` and `r eig_cor$values[eig_cor$values > 1][[2]]`, respectively.
+
+<br>
+__c) How much of the total variance in the variables was accounted for in those components with eigenvalues >1? Does the Scree plot support a decision to use only those components with
+eigenvalues >1?__
+
+```{r 1c, fig.width=4, fig.height= 3.1, out.extra='style="float:right; padding:15px"', echo=FALSE}
+
+#need to look at more than eigenvalues, so use pca function
+pca <- prcomp(na.omit(df), scale=TRUE) 
+
+#look at scree
+fviz_eig(pca)
+
+```
+
+We can determine that the combined first 2 components account for a cumulative proportion of `r summary(pca)$importance[3, 2]` of the variance (specifically, PC1 is responsible for `r summary(pca)$importance[2, 1]` and PC2 is responsible for `r summary(pca)$importance[2, 2]`). Thus, these two orthogonal PCs carry the majority of variability.
+
+The scree plot visualization shows a steep descent, with the 'elbow' of the plot falling on PC3, which suggests that we employ only the first 2 PCS. In this case, the scree plot supports Kaiser's criterion to employ only those PCs with an eigenvalue > 1.  (Kaiser's criterion is valid here, as the number of variables is <30, and communalities are >.7). We can further validate our decision to keep only the first 2 PCs as they together account for >70% of the variance, which is a third criteria for deciding the number of components to retain. Moreover, keeping too few components is genenerally preferable to keeping too many (to avoid overfitting).
+
+<br> 
+
+__d) Referring to the “Component Plot” in an unrotated model can help determine whether rotation could help distinguish factors to a greater extent. In this case, would the analysis benefit if the component axes were rotated, or are the variables hovering nicely (and in a separated manner) around each component axis?__
+
+```{r 1d, fig.width=4, fig.height= 3.0, out.extra='style="float:right; padding:15px"', echo=FALSE}
+
+fviz_pca_var(pca, #*fancy bi-plot
+             col.var = "contrib",
+             gradient.cols = 'npg',
+             title = 'Component plot -- unrotated',
+             repel = TRUE)
+
+```
+
+The component plot, or bi-plot, of the unrotated model shows a clear separation between factors. (Because we have standardized the variables to unit norm, all vectors have the same length; the structure of the PCA is indicated by the direction, or angle, of the vectors.) Specifically, the `Leafs` factor (defined by the presence of `Income`) and the `Flames` factor (defined by the presence of `Kind2Mom`) lie on separate axes.
+
+However, it is almost always the case, by definition, that rotation improves separation between factors. Here, we can visually imagine that if the axes were rotated slighly clockwise, the model would more closely intersect /better separate the PC1 (`Flames`) and PC2 (`Leafs`) variables.
+
+<br>
+
+-----
+
+####Question 2: PCA, Varimax rotation
+
+<br>
+__a) What do rotations attempt to do?__
+
+Rotation is primarily intended to <u>improve simplicity</u> of a given model. Rotated factors are "simple", in that rotation generally ensures all variables' factor loadings fall closer to |1| or 0 than unrotated factors. Different criteria for simplicity lead to different methods of rotation. 
+
+As an upshot of simplicity, rotation <u> improves interpretability</u>, as factor loading close to |1| are interpreted as important, whilst those close to 0 are deemed unimportant. Note that rotation does _not_ improve the fit between the data and the factor structure, i.e., any rotated factor solution explains exactly as much correlation in the data as the initial solution. (By extension, there is no such thing as a 'best' rotation from a statistical point of view: the choice between rotations is made on non-statistical grounds.) Simply, different rotations (may) give rise to different interpretations of the same data, and the selection of a rotation method and its interpretation is driven by theoretical considerations.
+
+<br>
+__b) Is Varimax orthogonal or oblique?__
+
+Varimax is an <u>orthogonal rotation</u>, first described by Kaiser. The Varimax works such that each component tends to load highly on a small number of variables (a small number of high loadings), and low on the others (a large number of small loadings). Because Varimax is orthogonal, factors remain uncorrelated.
+
+<br>
+__c) Compare the values for cumulative percentage of variance explained in the rotated solution and the non-rotated solution. Are they the same or different?__
+
+```{r 2c, results=FALSE, echo=FALSE}
+
+#run pca
+pcaVarimax <- principal(na.omit(df), nfactors=2, rotate='varimax', covar=FALSE, scores=TRUE, missing=FALSE)
+
+#to extract elements, use print function
+p <- print(pcaVarimax)
+
+```
+
+After rotation, the combined first 2 rotated components (RC1 and RC2) account for a cumulative proportion of `r p$Vaccounted[3, 2]` of the variance, which is identical to the cumulative proportion accounted for by PC1 and PC2 in the unrotated solution. However, we see that proportional variance differs between PCs and RCs: the proportional variance of RC1 is `r p$Vaccounted[2, 1]` (cf `r summary(pca)$importance[2, 1]`), and RC2 is `r p$Vaccounted[2, 2]` (cf `r summary(pca)$importance[2, 2]`).
+
+<br>
+__d) Which variables load on the “Leafs” factor, and which load on the “Flames” factor? Which variables cross-load? Are the loadings positive or negative and what does that indicate in the context of the factors that you have extracted?__
+
+<button class="btn btn-secondary" data-toggle="collapse" data-target="#BlockName"> Click to show RC factor loadings </button>  
+<div id="BlockName" class="collapse">  
+
+```{r 2d, echo=FALSE}
+
+#save the loadings as a dataframe
+varimax_loadings <- pcaVarimax$loadings[1:7, 1:2]
+
+#feed into kable to make pretty
+varimax_loadings %>%
+  kable(align = "c") %>%
+  kable_styling(bootstrap_options = c('striped', 'hover', 'condensed')) %>%
+                add_header_above(c(" " = 1, "Leafs" = 1, "Flames" = 1))
+
+#for calculations of non-loading weights, make a new df
+varimax_abs <- abs(varimax_loadings)
+
+```
+
+</div>
+<br>
+
+We see that `Income`, `Yuppy`, and `CarFancy` clearly load on the Leafs factor, and `Kind2Mom`, `Down2Erth`, and `HardWork`clearly load on the Flames factor. The `Luv4Team` is 'cross-loaded' on both factors, suggesting that both team's fans love their team (here, I am defining cross loading as a weight ≥ .35 on both factors; there is controvery about this threshold). 
+
+The components table reveals two negative loadings. The variable `Kind2Mom` loads negatively on the Leafs factor (`r varimax_loadings[4, 1]`), which suggests that Leafs fans are not particularly nice to their mothers. The `Yuppy` factor loads negatively on the Flames factor (`r varimax_loadings[2, 2]`), which suggests that Flames fans are not Yuppies (indeed it is well-known that most Calgarians are NIMBY's).
+
+<br>
+__e) Describe the differences you see in loading patterns before and after the rotation. Has the rotation improved the interpretability of the loading pattern (i.e. do variables that were cross-loaded before the rotation appear to load more on one factor or another after rotation)? Do the axes in the rotated component plot appear to fit the variables better or worse than before?__
+<br>
+
+<button class="btn btn-secondary" data-toggle="collapse" data-target="#BlockName2"> Click to show PC factor loadings </button>  
+<div id="BlockName2" class="collapse">  
+
+```{r 2e, echo=FALSE}
+
+#put loadings into a df
+pca_loadings <- as.data.frame(pca$rotation[,1:2])
+
+#feed into kable to make pretty
+pca_loadings %>%
+  kable(align = "c") %>%
+  kable_styling(bootstrap_options = c('striped', 'hover', 'condensed')) %>%
+                add_header_above(c(" " = 1, "Leafs" = 1, "Flames" = 1))
+
+#for calculations of non-loading weights, make a new df
+pca_abs <- abs(pca_loadings)
+
+```
+
+</div>
+
+```{r 2eii, fig.width=5, fig.height= 5.0, out.extra='style="float:right; padding:0px"', echo=FALSE}
+
+biplot(pcaVarimax, 
+       col=c("black","black"),
+       main='Component plot -- varimax rotation')
+
+```
+
+The orthogonal Varimax rotation has helped interpretability. In the rotated solution, the first two components show <u>higher correlations</u> between the variable and the component, i.e., the rotated solution shows values that are closer to |1| or 0. Specifically, only a total of `r sum(varimax_loadings >.3 &  varimax_loadings <.7)` rotated weights fall between |.3 : .7|, considered to be a weak loading. In contrast, the unrotated solution shows `r sum(pca_loadings >.3 &  pca_loadings <.7)` weights in the same range. 
+
+Note also that the rotation has decreased the number of observed <u>crossloadings</u>. In the rotated solution, only `r sum(varimax_loadings[,1] > .35 & varimax_loadings[,2] > .35)` variables are <u>'cross-loaded'</u> (again, defined as weights >|.35| on both examined factors). In contrast, the unrotated solution expresses `r sum(pca_loadings[,1] > .35 & pca_loadings[,2] > .35)` weights in the same range. It follows that the absolute value of the difference between the absolute values of the weights is greater in the rotated solution (`r sum(abs(varimax_loadings[,1] - varimax_loadings[,2]))`) than the unrotated solution (`r sum(abs(pca_loadings[,1] - pca_loadings[,2]))`), which represents an improvement to interpretability.
+
+Another consideration is improved <u>reliability </u> of the factors. Reliability is typically assessed with the absolute magnitude and number of loadings: components with at least 4 loads > |.6|, or 3 loadings > |.8|, are reliable. On this basis, neither PC1 nor PC2 are reliable. However, both RC1 and RC2 are.
+
+A final way of evaluation the rotation is via visualization of the 'biplot', which shows both individuals and variables. The left and bottom axes show RC scores; the top and right axes show weights. Here, we see that the axes in the rotated component plot appear to more closely intersect / better separate RC1 from RC2. 
+
+-----
+
+####Question 3: Factor Analysis, Varimax rotation
+
+<br>
+__a) How do PCA and FA use correlation matrices differently during computation? How is this reflected in the total variance explained?__
+
+```{r 3a, echo=FALSE}
+
+df_scale <- scale(na.omit(df))
+paf <- fa(df_scale, nfactors = 2, rotate = "varimax", mmax.iter = 50, fm = "pa")
+
+```
+
+PCA and FA use different correlation matrices during computation. Specifically, the values on the diagonal ("communalities") differ. The PCA matrix shows <u>"total variance"</u>, i.e., values of 1; in contrast, the FA matrix shows estimates of <u> "common variance" </u>, that fall below 1. This difference reflects a theoretical difference between PCA and FA: PCA assumes that all variability is common, and all unique sources of variability are 0. In contrast, FA assumes there is measurement error, and thus its communalities express variation accounted for by the common factor, but not that attributed to the unique factor. 
+
+```{r 3a table, echo=FALSE}
+
+#make a dataframe for comparison of variances
+
+#PCA unrotated
+PCA_u_cum <- summary(pca)$importance[3, 2]
+PCA_u_PC1 <- summary(pca)$importance[2, 1]
+PCA_u_PC2 <- summary(pca)$importance[2, 2]
+
+PCA_u <- c(PCA_u_cum,PCA_u_PC1,PCA_u_PC2)
+
+#PCA - varimax
+PCA_v_cum <- pcaVarimax$Vaccounted[3, 2]
+PCA_v_PC1 <- pcaVarimax$Vaccounted[2, 1]
+PCA_v_PC2 <- pcaVarimax$Vaccounted[2, 2]
+
+PCA_v <- c(PCA_v_cum,PCA_v_PC1,PCA_v_PC2)
+
+#PAF - varimax
+PAF_v_cum <- paf$Vaccounted[3, 2]
+PAF_v_PA1 <- paf$Vaccounted[2, 1]
+PAF_v_PA2 <- paf$Vaccounted[2, 2]
+
+PAF_v <- c(PAF_v_cum,PAF_v_PA1,PAF_v_PA2)
+
+#bind together in df
+variability <- cbind(PCA_u, PCA_v, PAF_v)
+
+#add row names
+rownames(variability) <- c('total variance explained', 'component 1', 'component 2')
+
+#clean up
+rm(PCA_u_cum,PCA_u_PC1,PCA_u_PC2, 
+   PCA_v_cum,PCA_v_PC1,PCA_v_PC2,
+   PAF_v_cum,PAF_v_PA1,PAF_v_PA2,
+   PCA_u, PCA_v, PAF_v)
+
+#feed into kable to make pretty
+variability %>%
+  kable(align = "c", 
+        col.names = c('PCA - unrotated', 'PCA - varimax', 'PAF - varimax')) %>%
+  kable_styling(full_width = F, 
+                position='float_right',
+                bootstrap_options = c('striped', 'hover', 'condensed'))
+
+```
+
+
+This difference is reflected in differences in `total variance explained` between our PCA and FA models. In our dataset, we see that the first two components of both PCA solutions (with and without rotation) explain a proportion of `r variability[1, 2]` of variance. In contrast, the FA solution explains slightly less, at `r variability[1, 3]`. The difference is attributable to the FA model's incorporation of a measurement error estimate.
+
+<br>
+
+__b) In relation to the Rotated loading pattern from Question #2, has using PAF changed your loading pattern to any great extent, or has the general loading pattern remained similar? If there are differences between the loading matrices, note which variables load differently. You can also refer to the component plot for the rotated solution as well if it helps to tell similarities and differences from the solution in Question #2, but this is not necessary to answer the question.__
+
+<button class="btn btn-secondary" data-toggle="collapse" data-target="#BlockName3"> Click to show PAF factor loadings </button>  
+<div id="BlockName3" class="collapse">  
+
+```{r 3b, echo=FALSE}
+
+paf_loadings <- as.data.frame(paf$Structure[, 1:2])
+
+#feed into kable to make pretty
+paf_loadings %>%
+  kable(align = "c") %>%
+  kable_styling(bootstrap_options = c('striped', 'hover', 'condensed')) %>%
+                add_header_above(c(" " = 1, "Leafs" = 1, "Flames" = 1))
+
+
+```
+
+</div>
+
+<br>
+
+As displayed in the visualization below, the factor loading pattern is very similar between PCA and PAF, both with varimax rotation (the loading pattern of PCA without rotation is included for comparison). This similarity makes sense: selecting PCA vs. FA should ultimately weild little/no difference to the conclusion of the analysis, as long as the number of variables included is moderately large (>30), and the FA analysis contains virtually no variables expected to have low communalities (e.g., .4). Though the first of these conditions isn't met here, our data is clearly sufficient to realize this general rule.  
+
+```{r 3bii, echo=FALSE, warning=FALSE, message=FALSE, fig.width=9.5}
+
+####################
+#PCA no rotation
+####################
+
+#move rownames into df
+pca_loadings.m <- tibble::rownames_to_column(pca_loadings, "item")
+
+#melt the data
+pca_loadings.m <- melt(pca_loadings.m)
+
+#plot
+plot1<- ggplot(pca_loadings.m, aes(item, abs(value), fill=value)) + 
+  facet_wrap(~ variable, nrow=1) + 
+  geom_bar(stat="identity") +
+  coord_flip() +
+  scale_fill_gradient2(name = "value", 
+                       high = "blue", mid = "white", low = "red", 
+                       midpoint=0) + 
+  ylab("Loading Strength") + 
+  xlab("") +
+  ggtitle("PCA - no rotation") +
+  theme_bw(base_size=10) +
+  theme(legend.position = "top")
+
+####################
+#PCA varimax
+####################
+
+#move rownames into df
+varimax_loadings.m <- as.data.frame(varimax_loadings)
+varimax_loadings.m <- tibble::rownames_to_column(varimax_loadings.m, "item")
+
+#melt the data
+varimax_loadings.m <- melt(varimax_loadings.m)
+
+#plot
+plot2 <- ggplot(varimax_loadings.m, aes(item, abs(value), fill=value)) + 
+  facet_wrap(~ variable, nrow=1) + 
+  geom_bar(stat="identity") +
+  coord_flip() +
+  scale_fill_gradient2(name = "value", 
+                       high = "blue", mid = "white", low = "red", 
+                       midpoint=0) + 
+  ylab("Loading Strength") + 
+  xlab("") +
+  ggtitle("PCA - varimax rotation") +
+  theme_bw(base_size=10) +
+  theme(legend.position = "top")
+
+####################
+#PAF varimax
+####################
+
+#move rownames into df
+paf_loadings.m <- as.data.frame(paf_loadings)
+paf_loadings.m <- tibble::rownames_to_column(paf_loadings.m, "item")
+
+#melt the data
+paf_loadings.m <- melt(paf_loadings.m)
+
+#plot
+plot3 <- ggplot(paf_loadings.m, aes(item, abs(value), fill=value)) + 
+  facet_wrap(~ variable, nrow=1) + 
+  geom_bar(stat="identity") +
+  coord_flip() +
+  scale_fill_gradient2(name = "value", 
+                       high = "blue", mid = "white", low = "red", 
+                       midpoint=0) + 
+  ylab("Loading Strength") + 
+  xlab("") +
+  ggtitle("PAF - varimax rotation") +
+  theme_bw(base_size=10) +
+  theme(legend.position = "top")
+
+#plot side by side
+grid.arrange(plot1, plot2, plot3, ncol=3)
+
+```
+
+
+-----
+
+####Question 4: Factor Analysis, Promax rotation
+
+<br>
+__a) Are there sizable differences between loadings in the “Pattern” and “Structure” matrices? If so, where are the biggest differences?__
+
+```{r 4a, warning=FALSE, message=FALSE, echo=FALSE, include=FALSE, output=FALSE}
+
+#run promax
+paf_promax <- fa(df_scale, nfactors = 2, rotate = "promax", max.iter = 50, fm = "pa")
+
+#structure matrix
+paf_structure <- as.data.frame(paf_promax$Structure[, 1:2])
+
+#pattern matrix
+paf_pattern <- as.data.frame(paf_promax$loadings[, 1:2])
+
+#difference matrix
+paf_diff <- paf_structure - paf_pattern
+
+#difference matrix - melted
+paf_diff.m <- tibble::rownames_to_column(paf_diff, "item")
+paf_diff.m <- melt(paf_diff.m)
+paf_diff.m$value <- abs(paf_diff.m$value)#make absolute value
+paf_diff.m$var <- paste(paf_diff.m$item, ' ', '(', paf_diff.m$variable, ')', sep="")
+
+#order df biggest to smallest
+paf_diff.m <- paf_diff.m[order(-paf_diff.m$value),]
+
+#pull out variable names
+var_names <- paf_diff.m$var 
+
+#for comparison, look at sctructure matrix, which has correlations - see if it's in the same order.
+paf_structure.m <- tibble::rownames_to_column(paf_structure, "item")
+paf_structure.m <- melt(paf_structure.m)
+paf_structure.m$value <- abs(paf_structure.m$value)#make absolute value
+paf_structure.m$var <- paste(paf_structure.m$item, ' ', '(', paf_structure.m$variable, ')', sep="")
+
+#order df biggest to smallest
+paf_structure.m <- paf_structure.m[order(-paf_structure.m$value),]
+
+#pull out variable names
+str_names <- paf_structure.m$var 
+
+```
+
+In oblique rotations (such as Promax), the factor and structure pattern matrices are distinct. Specifically, the <u>pattern matrix </u> holds the loadings, which are analogous to standardize regression coefficients from a multiple regression analysis. A given element indicates the importance of that variable to the factor, with the influence of the other variables partialled out. The <u>structure matrix </u> holds simple correlations between the variables with the factors. (Note that in orthological rotations, such as Varimax, the loading and correlations are indistinct.) 
+
+In our data, we see large differences between the pattern and structure matrices (a difference matrix visualized for ease in the rightmost plot). Specifically, the differences, from largest to smallest, are: `r var_names`.
+
+
+```{r 4ai, echo=FALSE, warning=FALSE, message=FALSE, results=FALSE, fig.width=9.5 }
+
+####################
+structure
+####################
+
+#move rownames into df
+paf_structure.m2 <- tibble::rownames_to_column(paf_structure, "item")
+
+#melt the data
+paf_structure.m2 <- melt(paf_structure.m2)
+
+#plot
+plot4 <- ggplot(paf_structure.m2, aes(item, abs(value), fill=value)) + 
+  facet_wrap(~ variable, nrow=1) + 
+  geom_bar(stat="identity") +
+  coord_flip() +
+  scale_fill_gradient2(name = "value", 
+                       high = "blue", mid = "white", low = "red", 
+                       midpoint=0) + 
+  ylab("Loading Strength") + 
+  xlab("") +
+  ggtitle("PAF structure matrix") +
+  theme_bw(base_size=10) +
+  theme(legend.position = "top")
+
+####################
+#pattern
+####################
+
+#move rownames into df
+paf_pattern.m <- tibble::rownames_to_column(paf_pattern, "item")
+
+#melt the data
+paf_pattern.m <- melt(paf_pattern.m)
+
+#plot
+plot5<- ggplot(paf_pattern.m, aes(item, abs(value), fill=value)) + 
+  facet_wrap(~ variable, nrow=1) + 
+  geom_bar(stat="identity") +
+  coord_flip() +
+  scale_fill_gradient2(name = "value", 
+                       high = "blue", mid = "white", low = "red", 
+                       midpoint=0) + 
+  ylab("Loading Strength") + 
+  xlab("") +
+  ggtitle("PAF pattern matrix") +
+  theme_bw(base_size=10) +
+  theme(legend.position = "top")
+
+####################
+#difference
+####################
+
+#move rownames into df
+paf_diff.m <- tibble::rownames_to_column(paf_diff, "item")
+
+#melt the data
+paf_diff.m <- melt(paf_diff.m)
+
+#plot
+plot6<- ggplot(paf_diff.m, aes(item, abs(value), fill=value)) + 
+  facet_wrap(~ variable, nrow=1) + 
+  geom_bar(stat="identity") +
+  coord_flip() +
+  scale_fill_gradient2(name = "value", 
+                       high = "green", mid = "white", low = "orange", 
+                       midpoint=0) + 
+  ylab("Loading Strength") + 
+  xlab("") +
+  ggtitle("Difference matrix") +
+  theme_bw(base_size=10) +
+  theme(legend.position = "top")
+
+grid.arrange(plot5, plot4, plot6, ncol=3)
+
+```
+
+
+
+
+
+<br>
+__b) What do the differences suggest about the level of relation between the factors? Confirm your argument by calculating the correlation between factors.__
+
+```{r 4b, echo=FALSE}
+
+paf_scores <- cor(paf_promax$scores)
+
+```
+
+These differences between the structure and pattern matrices exist because oblique rotation allows for <u> correlated factors </u> (unlike orthogonal rotation, in which correlation between the factors is equal to 0). The pattern and structure matrices are linked by the correlation matrix (i.e., `pattern` %*% `correlation` = `structure`). The off-diagonal term in this matrix, i.e., the correlation between PA1 and PC2, is r = `r paf_scores[1, 2]`. 
+
+-----

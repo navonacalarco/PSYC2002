@@ -1,0 +1,85 @@
+---
+title: "Missing data, unreliable corr matrices, negative eigenvalues"
+output: html_document
+---
+
+
+__Background__. I'd like to do a CCA. X will be imaging data. But, I have lots of missing values (result of unreliable white matter fiber estimation in small tracts).
+
+__Set up__.
+
+```{r setup,  warning=FALSE, message=FALSE, results='hide'}
+
+#load libraries
+libraries <- c('CCA', 'dplyr', 'matrixcalc') #list
+lapply(libraries, require, character.only = T) #load 
+
+#read in data
+df <- read.csv(dir('../data/out/', full.names=T, pattern="^eigen")) 
+
+```
+
+
+__Data cleaning.__
+
+```{r}
+
+#identify variables with data from fewer than 10 participants 
+(missing <- names(which(colSums(is.na(df)) > 10))) #n=29, all imaging vars are expected
+
+#remove variables with data from fewer than 10 participants 
+df<- df[, !colnames(df) %in% missing] 
+
+```
+
+__Create X and Y matrices.__
+```{r}
+
+#grep for relevant vars in df
+FA   <- grep('FA', names(df), value=TRUE)
+ncog <- grep('np_domain', names(df), value=TRUE)
+scog <- grep('scog_', names(df), value=TRUE)
+neg  <- grep('sans_sub_', names(df), value=TRUE)
+
+#create X as imaging -- contains 66 vars
+X <- scale(df[, names(df) %in% FA]) 
+
+#create Y as ncog, scog, and neg -- contains 12 vars
+Y <- c(ncog, scog, neg)
+Y <- scale(df[, names(df) %in% Y]) 
+
+```
+
+
+__Calculate within and between correlation matrices__.
+```{r}
+
+#because of missing data, using pairwise complete observations
+rxx <- cor(X, use = "p") ; ryy <- cor(Y, use = "p") ; rxy <- cor(X,Y, use = "p") 
+
+#check if any _complete_ columns of correlation matrices are NA
+sum(colSums(is.na(rxx)) > 0) ; sum(colSums(is.na(ryy)) > 0) ; sum(colSums(is.na(rxy)) > 0) #all 0
+
+```
+
+__But, omega calculation fails... (can't complete `chol`)__.
+```{r}
+
+#calculate omega
+#omega = t(solve(chol(rxx))) %*% rxy %*% solve(chol(ryy)) #FAILS because can't compute chol(rxx)
+
+#figure out why it fails - ensure symmetric
+is.symmetric.matrix(rxx)
+is.positive.definite(rxx) #uhoh
+
+#figure out why it fails - ensure positive/non-0 eigenvalues
+eigen(rxx)[1] #lots of negatives, and pretty big ones, too...
+
+```
+
+So, we see X is non-positive definite, and the negative eigenvalues (see last 14 values) are non-trivially large. 
+This suggests that the correlation matrix estimation isn't robust, I think because I calculated pairwise correlation coefficients in the presence of missing values. So, I need to do something else about the missing data...
+
+Unfortunately, N is not big enough to omit all observations with missing values (also I don't think it would be valid, given that so participants are expected to have some missing values, i.e., missing white matter tracts).
+
+So, should I impute missing values? Or, should I "shrink" the correlation matrix (e.g., via the [Ledoit Wolf](http://www.ledoit.net/honey.pdf) method). Or something else?
